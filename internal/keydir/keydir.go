@@ -74,7 +74,7 @@ func Validate(dir string) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("not a directory: %s", dir)
 	}
-	if info.Mode().Perm() != 0o700 {
+	if !secureMode(info, 0o700) {
 		return "", fmt.Errorf("key directory must be mode 700: %s", dir)
 	}
 	if !strings.HasPrefix(filepath.Base(dir), DirPrefix) {
@@ -105,10 +105,15 @@ func CheckPrivate(path string) error {
 	if info.Size() == 0 {
 		return fmt.Errorf("empty private key: %s", path)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if !secureMode(info, 0o600) {
 		return fmt.Errorf("private key must be mode 600: %s", path)
 	}
 	return nil
+}
+
+func secureMode(info os.FileInfo, want os.FileMode) bool {
+	special := os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+	return info.Mode().Perm() == want && info.Mode()&special == 0
 }
 
 // ReadPublic parses an OpenSSH Ed25519 public key file and returns its line and
