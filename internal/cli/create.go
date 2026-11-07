@@ -39,9 +39,11 @@ stdout contains exactly two eval-safe assignments, so this works:
 
   eval "$(temp-ssh-key create --format qr)"
 
-The public key, QR code, PNG path, and warnings are written to stderr.
-Creation prompts for a passphrase through ssh-keygen. --allow-unencrypted is
-required to skip the passphrase and is never implicit.`,
+The public key, QR code, PNG path, and warnings are written to stderr, so
+stdout can be captured by command substitution. QR output needs a terminal on
+stderr; creation prompts for a passphrase through ssh-keygen and needs one on
+stdin. --allow-unencrypted is required to skip the passphrase and is never
+implicit.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.emitAssignments = true
@@ -67,12 +69,15 @@ func runCreate(app *App, opts createOptions) (string, string, error) {
 		return "", "", errors.New("comment must be a single line")
 	}
 	if opts.format == "qr" {
-		if err := app.requireInteractive("QR output"); err != nil {
+		// The QR is written to stderr, so stdout is free to be captured by
+		// command substitution.
+		if err := app.requireStderrTTY("QR output"); err != nil {
 			return "", "", fmt.Errorf("%w; use --format text or png", err)
 		}
 	}
 	if !opts.allowUnencrypted {
-		if err := app.requireInteractive("create"); err != nil {
+		// ssh-keygen prompts on the terminal; stdout is not involved.
+		if err := app.requireStdinTTY("create"); err != nil {
 			return "", "", fmt.Errorf("%w; use --allow-unencrypted only when you intend an unencrypted key", err)
 		}
 	}

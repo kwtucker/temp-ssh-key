@@ -25,13 +25,21 @@ func newTestApp(t *testing.T) (*App, *bytes.Buffer, *bytes.Buffer) {
 		Out:         &out,
 		Err:         &errOut,
 		Version:     "test",
-		Interactive: false,
+		StdinIsTTY:  false,
+		StdoutIsTTY: false,
+		StderrIsTTY: false,
 		LookPath:    exec.LookPath,
 		Exec:        func(string, []string, []string) error { return nil },
 		Getenv:      func(string) string { return "" },
 		Environ:     func() []string { return []string{"PATH=" + os.Getenv("PATH")} },
 	}
 	return app, &out, &errOut
+}
+
+func setInteractive(app *App) {
+	app.StdinIsTTY = true
+	app.StdoutIsTTY = true
+	app.StderrIsTTY = true
 }
 
 func runCLI(t *testing.T, app *App, args ...string) error {
@@ -124,6 +132,53 @@ func TestCreateQRRequiresTTY(t *testing.T) {
 	err := runCLI(t, app, "create", "--allow-unencrypted", "--format", "qr", "--base", t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "interactive terminal") {
 		t.Fatalf("error = %v, want an interactive-terminal error", err)
+	}
+}
+
+// Command substitution captures stdout. create must still render the QR to
+// stderr and write the assignments to the captured stdout.
+func TestCreateQRWithCapturedStdout(t *testing.T) {
+	setupFakeKeygen(t)
+	app, out, errOut := newTestApp(t)
+	app.StdinIsTTY = true
+	app.StderrIsTTY = true
+
+	if err := runCLI(t, app, "create", "--allow-unencrypted", "--format", "qr", "--base", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	assignments := parseAssignments(t, out.String())
+	if assignments["KEY_DIR"] == "" {
+		t.Fatalf("missing KEY_DIR:\n%s", out.String())
+	}
+	if !strings.ContainsAny(errOut.String(), "█▀▄") {
+		t.Fatalf("stderr does not contain a QR code:\n%s", errOut.String())
+	}
+}
+
+// The passphrase prompt needs stdin only; stdout may be captured by eval.
+func TestCreatePassphraseWithCapturedStdout(t *testing.T) {
+	setupFakeKeygen(t)
+	app, out, _ := newTestApp(t)
+	app.StdinIsTTY = true
+
+	if err := runCLI(t, app, "create", "--format", "text", "--base", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if assignments := parseAssignments(t, out.String()); assignments["KEY_DIR"] == "" {
+		t.Fatalf("missing KEY_DIR:\n%s", out.String())
+	}
+}
+
+func TestShowQRUsesStdoutTTY(t *testing.T) {
+	dir, _, _ := makeKeyDir(t)
+	app, out, _ := newTestApp(t)
+	app.StdoutIsTTY = true
+
+	if err := runCLI(t, app, "show", dir, "--format", "qr"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.ContainsAny(out.String(), "█▀▄") {
+		t.Fatal("stdout does not contain a QR code")
 	}
 }
 
@@ -272,7 +327,7 @@ func TestCleanupPrint(t *testing.T) {
 func TestCleanupRemove(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, _, errOut := newTestApp(t)
-	app.Interactive = true
+	setInteractive(app)
 	app.In = strings.NewReader("y\ny\n")
 
 	if err := runCLI(t, app, "cleanup", dir, "--remove"); err != nil {
@@ -289,7 +344,7 @@ func TestCleanupRemove(t *testing.T) {
 func TestCleanupRemoveDeclined(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, _, _ := newTestApp(t)
-	app.Interactive = true
+	setInteractive(app)
 	app.In = strings.NewReader("n\nn\n")
 
 	if err := runCLI(t, app, "cleanup", dir, "--remove"); err == nil {
@@ -305,7 +360,6 @@ func TestCleanupRemoveDeclined(t *testing.T) {
 func TestCleanupRemoveRequiresTTY(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, _, _ := newTestApp(t)
-	app.Interactive = false
 
 	if err := runCLI(t, app, "cleanup", dir, "--remove"); err == nil {
 		t.Fatal("cleanup --remove succeeded without a terminal")
@@ -319,7 +373,7 @@ func TestCleanupUnexpectedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	app, _, _ := newTestApp(t)
-	app.Interactive = true
+	setInteractive(app)
 	app.In = strings.NewReader("y\ny\ny\n")
 
 	err := runCLI(t, app, "cleanup", dir, "--remove")
@@ -334,7 +388,7 @@ func TestCleanupUnexpectedFile(t *testing.T) {
 func TestShell(t *testing.T) {
 	dir, _, fingerprint := makeKeyDir(t)
 	app, _, _ := newTestApp(t)
-	app.Interactive = true
+	setInteractive(app)
 
 	var gotPath string
 	var gotArgv, gotEnv []string
@@ -402,7 +456,7 @@ func TestShellAlreadyIsolated(t *testing.T) {
 
 func TestShellWithoutKey(t *testing.T) {
 	app, _, _ := newTestApp(t)
-	app.Interactive = true
+	setInteractive(app)
 	app.LookPath = func(name string) (string, error) {
 		if name == "zsh" {
 			return "/bin/zsh", nil
@@ -433,7 +487,7 @@ func TestShellWithoutKey(t *testing.T) {
 func TestStart(t *testing.T) {
 	line, _ := setupFakeKeygen(t)
 	app, out, errOut := newTestApp(t)
-	app.Interactive = true
+	setInteractive(app)
 	var gotEnv []string
 	app.Exec = func(_ string, _ []string, env []string) error {
 		gotEnv = env
@@ -467,7 +521,7 @@ func TestStartIsolated(t *testing.T) {
 		}
 		return ""
 	}
-	app.Interactive = true
+	setInteractive(app)
 
 	err := runCLI(t, app, "start")
 	if err == nil || !strings.Contains(err.Error(), "create") {
@@ -477,7 +531,6 @@ func TestStartIsolated(t *testing.T) {
 
 func TestStartRequiresTTY(t *testing.T) {
 	app, _, _ := newTestApp(t)
-	app.Interactive = false
 
 	if err := runCLI(t, app, "start"); err == nil {
 		t.Fatal("start succeeded without a terminal")

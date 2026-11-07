@@ -12,11 +12,16 @@ import (
 // App carries process-level dependencies so commands can be tested without a
 // real terminal, a real ssh-keygen, or a real process replacement.
 type App struct {
-	In          io.Reader
-	Out         io.Writer
-	Err         io.Writer
-	Version     string
-	Interactive bool
+	In      io.Reader
+	Out     io.Writer
+	Err     io.Writer
+	Version string
+
+	// Terminal status is tracked per stream because command substitution
+	// captures stdout while stdin and stderr stay attached to the terminal.
+	StdinIsTTY  bool
+	StdoutIsTTY bool
+	StderrIsTTY bool
 
 	LookPath func(string) (string, error)
 	Exec     func(path string, argv []string, env []string) error
@@ -24,15 +29,16 @@ type App struct {
 	Environ  func() []string
 }
 
-// NewApp returns an App wired to the current process. Interactive is true only
-// when both stdin and stdout are terminals.
+// NewApp returns an App wired to the current process.
 func NewApp(version string) *App {
 	return &App{
 		In:          os.Stdin,
 		Out:         os.Stdout,
 		Err:         os.Stderr,
 		Version:     version,
-		Interactive: isTerminal(os.Stdin) && isTerminal(os.Stdout),
+		StdinIsTTY:  isTerminal(os.Stdin),
+		StdoutIsTTY: isTerminal(os.Stdout),
+		StderrIsTTY: isTerminal(os.Stderr),
 		LookPath:    exec.LookPath,
 		Exec: func(path string, argv []string, env []string) error {
 			return syscall.Exec(path, argv, env)
@@ -55,8 +61,29 @@ func (a *App) note(format string, args ...any) {
 }
 
 func (a *App) requireInteractive(what string) error {
-	if !a.Interactive {
+	if !a.StdinIsTTY || !a.StdoutIsTTY {
 		return fmt.Errorf("%s needs an interactive terminal; run this yourself, not through a tool call", what)
+	}
+	return nil
+}
+
+func (a *App) requireStdinTTY(what string) error {
+	if !a.StdinIsTTY {
+		return fmt.Errorf("%s needs an interactive terminal on stdin; run this yourself, not through a tool call", what)
+	}
+	return nil
+}
+
+func (a *App) requireStdoutTTY(what string) error {
+	if !a.StdoutIsTTY {
+		return fmt.Errorf("%s needs an interactive terminal on stdout", what)
+	}
+	return nil
+}
+
+func (a *App) requireStderrTTY(what string) error {
+	if !a.StderrIsTTY {
+		return fmt.Errorf("%s needs an interactive terminal on stderr", what)
 	}
 	return nil
 }

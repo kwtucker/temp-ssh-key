@@ -97,14 +97,16 @@ KEY_FINGERPRINT='SHA256:...'
 ```
 
 The public key, QR code, PNG path, and warnings go to stderr. That split is what
-makes `eval` safe while the QR code still renders.
+makes `eval` safe while the QR code still renders. Because stdout is captured,
+`create` only needs a terminal on stdin (for the passphrase) and on stderr (for
+QR output); captured stdout is fine.
 
 Creation prompts for a passphrase through `ssh-keygen`. The passphrase is never
 passed as an argument, environment variable, or file. `--allow-unencrypted`
 skips the passphrase and is never implicit.
 
 `--format png` writes `public-key.png` inside the key directory and prints its
-path. QR output requires an interactive terminal.
+path. QR output requires a terminal on stderr.
 
 ### `shell` and `start`
 
