@@ -18,7 +18,7 @@ not revocation.**
 With mise:
 
 ```sh
-mise use -g github:kwtucker/temp-ssh-key@0.1.0
+mise use -g github:kwtucker/temp-ssh-key@0.2.0
 ```
 
 With Go:
@@ -34,26 +34,28 @@ Or download a release archive for Linux or macOS (amd64/arm64), verify
 
 ## Quick start
 
-Convenience flow — create the key and enter an isolated shell in one command:
+Convenience flow — create the key and enter a ready-to-use isolated shell in
+one command:
 
 ```sh
-temp-ssh-key start --format qr
+temp-ssh-key start --format qr \
+  --name "Your Name" --email "you@example.com"
 ```
 
-Scan the QR code on the trusted device and authorize the public key there. In
-the isolated shell:
+`start` exports the key paths, `GIT_SSH_COMMAND`, the Git config override, the
+identity, and Git config isolation into the new shell. Scan the QR code on the
+trusted device and authorize the public key there. Then do the Git work:
 
 ```sh
-eval "$(temp-ssh-key env "$KEY_DIR" \
-  --name "Your Name" --email "you@example.com")"
-
-ssh -F /dev/null -o IdentitiesOnly=yes -i "$KEY" -T git@github.com
 git add -A
 git commit -m "message"
 git push git@github.com:OWNER/REPO.git HEAD:main
+```
 
-# After revoking the key on the trusted device:
-temp-ssh-key cleanup "$KEY_DIR" --remove
+After revoking the key on the trusted device:
+
+```sh
+temp-ssh-key cleanup --remove
 exit
 ```
 
@@ -65,7 +67,7 @@ temp-ssh-key shell
 eval "$(temp-ssh-key create --format qr)"
 eval "$(temp-ssh-key env "$KEY_DIR" --name "Your Name" --email "you@example.com")"
 # ... git work ...
-temp-ssh-key cleanup "$KEY_DIR" --remove
+temp-ssh-key cleanup --remove
 exit
 ```
 
@@ -75,10 +77,10 @@ exit
 |---|---|
 | `create` | Generate a key and print only the public artifact. |
 | `shell [KEY_DIR]` | Enter a history-isolated `zsh` or `bash`. |
-| `start` | `create` then `shell`. |
+| `start` | Create a key, export the session environment, and enter an isolated shell. |
 | `show KEY_DIR` | Verify a key directory and display its public key. |
 | `env KEY_DIR` | Print eval-safe Git and key exports. |
-| `cleanup KEY_DIR` | Print or remove this tool's local files. |
+| `cleanup [KEY_DIR]` | Print or remove this tool's local files (defaults to `$KEY_DIR`). |
 | `--version` | Print the version. |
 
 Run `temp-ssh-key <command> --help` for flags.
@@ -113,12 +115,17 @@ path. QR output requires a terminal on stderr.
 `shell` starts a new `zsh -f` or `bash --noprofile --norc` with history storage
 disabled (`HISTFILE=/dev/null` and `SAVEHIST=0` or `HISTSIZE=0`). The marker
 `TEMP_SSH_KEY_ISOLATED=1` prevents nesting. If you already started an isolated
-shell manually with the same history settings, `shell` recognizes it too. When a
-key directory is given, it exports `KEY_DIR`, `KEY`, and `KEY_FINGERPRINT`.
+shell manually with the same history settings, `shell` recognizes it too.
 
-`start` is the convenience composition. It replaces the process, so the parent
-shell records only `start`. Inside an isolated shell it refuses to nest and
-points you at `create`.
+`start` is the convenience composition. It creates the key, exports the same
+environment as `env`, and replaces the process, so the parent shell records only
+`start`. Pass `--name` and `--email` to export the commit identity; without them
+the isolated shell has no identity unless the repository sets one. Use
+`--no-isolate-config` to keep your normal Git config. Inside an isolated shell
+`start` refuses to nest and points you at `create`.
+
+Both `start` and `shell` print a short next-steps banner, including the
+revoke-before-cleanup reminder.
 
 ### `env`
 
@@ -126,18 +133,26 @@ points you at `create`.
 eval "$(temp-ssh-key env "$KEY_DIR" --name "Your Name" --email "you@example.com")"
 ```
 
-This exports `KEY_DIR`, `KEY`, `GIT_SSH_COMMAND`, a `core.sshCommand` override,
-and optionally the author and committer identity. By default it also sets
-`GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_SYSTEM=/dev/null` so global
-rewrite rules, signing configuration, and identity do not leak into the
-operation. Use `--no-isolate-config` to keep your normal Git config.
+This exports `KEY_DIR`, `KEY`, `KEY_FINGERPRINT`, `GIT_SSH_COMMAND`, a
+`core.sshCommand` override, and optionally the author and committer identity. By
+default it also sets `GIT_CONFIG_GLOBAL=/dev/null` and
+`GIT_CONFIG_SYSTEM=/dev/null` so global rewrite rules, signing configuration, and
+identity do not leak into the operation. Use `--no-isolate-config` to keep your
+normal Git config.
+
+`shell KEY_DIR` exports the same session environment directly into the new
+shell, so `env` is only needed in the strict flow.
 
 ### `cleanup`
 
 ```sh
-temp-ssh-key cleanup "$KEY_DIR"          # print the rm/rmdir commands
-temp-ssh-key cleanup "$KEY_DIR" --remove # prompt per file, then rmdir
+temp-ssh-key cleanup            # print the rm/rmdir commands for $KEY_DIR
+temp-ssh-key cleanup --remove   # prompt per file, then rmdir
+temp-ssh-key cleanup /path/to/key --remove
 ```
+
+`KEY_DIR` defaults to `$KEY_DIR`, which `start`, `shell KEY_DIR`, and `env`
+export. Passing the path explicitly still works.
 
 Cleanup refuses directories that are symlinks, not owned by you, not mode 700,
 or not named `temp-ssh-key.*`. It also refuses to touch a directory containing

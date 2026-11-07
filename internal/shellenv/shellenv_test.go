@@ -31,6 +31,7 @@ func TestExports(t *testing.T) {
 	got, err := Exports(Options{
 		KeyDir:        "/tmp/temp-ssh-key.abc",
 		KeyPath:       "/tmp/temp-ssh-key.abc/id_ed25519",
+		Fingerprint:   "SHA256:abc",
 		Name:          "Kevin Tucker",
 		Email:         "kevin@example.com",
 		IsolateConfig: true,
@@ -43,16 +44,17 @@ func TestExports(t *testing.T) {
 	wantLines := []string{
 		"export KEY_DIR='/tmp/temp-ssh-key.abc'",
 		"export KEY='/tmp/temp-ssh-key.abc/id_ed25519'",
+		"export KEY_FINGERPRINT='SHA256:abc'",
 		`export GIT_SSH_COMMAND='ssh -F /dev/null -o IdentitiesOnly=yes -i '\''/tmp/temp-ssh-key.abc/id_ed25519'\'''`,
-		"export GIT_CONFIG_KEY_2=core.sshCommand",
+		"export GIT_CONFIG_KEY_2='core.sshCommand'",
 		`export GIT_CONFIG_VALUE_2='ssh -F /dev/null -o IdentitiesOnly=yes -i '\''/tmp/temp-ssh-key.abc/id_ed25519'\'''`,
-		"export GIT_CONFIG_COUNT=3",
+		"export GIT_CONFIG_COUNT='3'",
 		"export GIT_AUTHOR_NAME='Kevin Tucker'",
 		"export GIT_AUTHOR_EMAIL='kevin@example.com'",
 		"export GIT_COMMITTER_NAME='Kevin Tucker'",
 		"export GIT_COMMITTER_EMAIL='kevin@example.com'",
-		"export GIT_CONFIG_GLOBAL=/dev/null",
-		"export GIT_CONFIG_SYSTEM=/dev/null",
+		"export GIT_CONFIG_GLOBAL='/dev/null'",
+		"export GIT_CONFIG_SYSTEM='/dev/null'",
 	}
 	lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
 	if len(lines) != len(wantLines) {
@@ -73,16 +75,44 @@ func TestExportsNoIdentityOrIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"} {
+	for _, forbidden := range []string{"KEY_FINGERPRINT", "GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"} {
 		if strings.Contains(got, forbidden) {
 			t.Errorf("output unexpectedly contains %s:\n%s", forbidden, got)
 		}
 	}
-	if !strings.Contains(got, "export GIT_CONFIG_KEY_0=core.sshCommand\n") {
+	if !strings.Contains(got, "export GIT_CONFIG_KEY_0='core.sshCommand'\n") {
 		t.Errorf("missing zero-count override:\n%s", got)
 	}
-	if !strings.Contains(got, "export GIT_CONFIG_COUNT=1\n") {
+	if !strings.Contains(got, "export GIT_CONFIG_COUNT='1'\n") {
 		t.Errorf("missing incremented count:\n%s", got)
+	}
+}
+
+func TestVarsOrder(t *testing.T) {
+	vars, err := Vars(Options{
+		KeyDir:        "/tmp/k",
+		KeyPath:       "/tmp/k/id_ed25519",
+		Fingerprint:   "SHA256:abc",
+		Name:          "Kevin Tucker",
+		Email:         "kevin@example.com",
+		IsolateConfig: true,
+		ConfigCount:   "1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, v := range vars {
+		names = append(names, v.Name)
+	}
+	want := []string{
+		"KEY_DIR", "KEY", "KEY_FINGERPRINT", "GIT_SSH_COMMAND",
+		"GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1", "GIT_CONFIG_COUNT",
+		"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
+		"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
+	}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("Vars names = %v, want %v", names, want)
 	}
 }
 

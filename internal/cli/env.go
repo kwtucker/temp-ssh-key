@@ -1,10 +1,8 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -39,36 +37,43 @@ This command contacts no remote and writes no files.`,
 }
 
 func runEnv(app *App, dir, name, email string, noIsolate bool) error {
-	dir, err := keydir.Validate(dir)
+	opts, err := sessionOptions(app, dir, name, email, !noIsolate)
 	if err != nil {
 		return err
 	}
-	if _, err := keydir.ReadPublic(filepath.Join(dir, keydir.PublicKeyName)); err != nil {
-		return err
-	}
-	keyPath := filepath.Join(dir, keydir.PrivateKeyName)
-	if err := keydir.CheckPrivate(keyPath); err != nil {
-		return err
-	}
-
-	if (name == "") != (email == "") {
-		return errors.New("--name and --email must be given together")
-	}
-	if strings.ContainsAny(name, "\r\n") || strings.ContainsAny(email, "\r\n") {
-		return errors.New("name and email must be single lines")
-	}
-
-	output, err := shellenv.Exports(shellenv.Options{
-		KeyDir:        dir,
-		KeyPath:       keyPath,
-		Name:          name,
-		Email:         email,
-		IsolateConfig: !noIsolate,
-		ConfigCount:   app.Getenv("GIT_CONFIG_COUNT"),
-	})
+	output, err := shellenv.Exports(opts)
 	if err != nil {
 		return err
 	}
 	_, err = fmt.Fprint(app.Out, output)
 	return err
+}
+
+// sessionOptions validates an existing key directory and returns the exports
+// for a Git session that uses it.
+func sessionOptions(app *App, dir, name, email string, isolate bool) (shellenv.Options, error) {
+	dir, err := keydir.Validate(dir)
+	if err != nil {
+		return shellenv.Options{}, err
+	}
+	pub, err := keydir.ReadPublic(filepath.Join(dir, keydir.PublicKeyName))
+	if err != nil {
+		return shellenv.Options{}, err
+	}
+	keyPath := filepath.Join(dir, keydir.PrivateKeyName)
+	if err := keydir.CheckPrivate(keyPath); err != nil {
+		return shellenv.Options{}, err
+	}
+	if err := validateIdentity(name, email); err != nil {
+		return shellenv.Options{}, err
+	}
+	return shellenv.Options{
+		KeyDir:        dir,
+		KeyPath:       keyPath,
+		Fingerprint:   pub.Fingerprint,
+		Name:          name,
+		Email:         email,
+		IsolateConfig: isolate,
+		ConfigCount:   app.Getenv("GIT_CONFIG_COUNT"),
+	}, nil
 }

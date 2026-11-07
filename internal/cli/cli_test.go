@@ -262,12 +262,13 @@ func TestEnv(t *testing.T) {
 	for _, want := range []string{
 		"export KEY_DIR='" + dir + "'",
 		"export KEY='" + filepath.Join(dir, keydir.PrivateKeyName) + "'",
-		"export GIT_CONFIG_KEY_2=core.sshCommand",
-		"export GIT_CONFIG_COUNT=3",
+		"export KEY_FINGERPRINT='",
+		"export GIT_CONFIG_KEY_2='core.sshCommand'",
+		"export GIT_CONFIG_COUNT='3'",
 		"export GIT_AUTHOR_NAME='Kevin Tucker'",
 		"export GIT_AUTHOR_EMAIL='kevin@example.com'",
-		"export GIT_CONFIG_GLOBAL=/dev/null",
-		"export GIT_CONFIG_SYSTEM=/dev/null",
+		"export GIT_CONFIG_GLOBAL='/dev/null'",
+		"export GIT_CONFIG_SYSTEM='/dev/null'",
 	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output does not contain %q:\n%s", want, output)
@@ -321,6 +322,32 @@ func TestCleanupPrint(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatalf("cleanup without --remove deleted the directory: %v", err)
+	}
+}
+
+func TestCleanupDefaultsToKeyDirEnv(t *testing.T) {
+	dir, _, _ := makeKeyDir(t)
+	app, out, _ := newTestApp(t)
+	app.Getenv = func(key string) string {
+		if key == "KEY_DIR" {
+			return dir
+		}
+		return ""
+	}
+
+	if err := runCLI(t, app, "cleanup"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "rmdir '"+dir+"'") {
+		t.Fatalf("stdout does not contain rmdir for $KEY_DIR:\n%s", out.String())
+	}
+}
+
+func TestCleanupWithoutKeyDir(t *testing.T) {
+	app, _, _ := newTestApp(t)
+	err := runCLI(t, app, "cleanup")
+	if err == nil || !strings.Contains(err.Error(), "KEY_DIR is not set") {
+		t.Fatalf("error = %v, want a missing KEY_DIR error", err)
 	}
 }
 
@@ -427,6 +454,15 @@ func TestShell(t *testing.T) {
 	if env["KEY_FINGERPRINT"] != fingerprint {
 		t.Errorf("KEY_FINGERPRINT = %q, want %q", env["KEY_FINGERPRINT"], fingerprint)
 	}
+	if !strings.Contains(env["GIT_SSH_COMMAND"], filepath.Join(dir, keydir.PrivateKeyName)) {
+		t.Errorf("GIT_SSH_COMMAND does not use the temporary key: %q", env["GIT_SSH_COMMAND"])
+	}
+	if env["GIT_CONFIG_KEY_0"] != "core.sshCommand" || env["GIT_CONFIG_COUNT"] != "1" {
+		t.Errorf("missing Git config override: KEY_0=%q COUNT=%q", env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_COUNT"])
+	}
+	if env["GIT_CONFIG_GLOBAL"] != "/dev/null" || env["GIT_CONFIG_SYSTEM"] != "/dev/null" {
+		t.Errorf("Git config was not isolated: GLOBAL=%q SYSTEM=%q", env["GIT_CONFIG_GLOBAL"], env["GIT_CONFIG_SYSTEM"])
+	}
 }
 
 func TestShellAlreadyIsolated(t *testing.T) {
@@ -494,7 +530,8 @@ func TestStart(t *testing.T) {
 		return nil
 	}
 
-	if err := runCLI(t, app, "start", "--allow-unencrypted", "--format", "text", "--base", t.TempDir(), "--shell", "bash"); err != nil {
+	if err := runCLI(t, app, "start", "--allow-unencrypted", "--format", "text", "--base", t.TempDir(),
+		"--shell", "bash", "--name", "Kevin Tucker", "--email", "kevin@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	if out.Len() != 0 {
@@ -503,6 +540,11 @@ func TestStart(t *testing.T) {
 	if !strings.Contains(errOut.String(), line) {
 		t.Fatalf("stderr does not contain the public key:\n%s", errOut.String())
 	}
+	for _, want := range []string{"Next steps:", "cleanup --remove", "Revoke the key"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("stderr does not contain %q:\n%s", want, errOut.String())
+		}
+	}
 	env := envMap(gotEnv)
 	dir := env["KEY_DIR"]
 	if dir == "" {
@@ -510,6 +552,63 @@ func TestStart(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatalf("started key directory is missing: %v", err)
+	}
+	if env["GIT_AUTHOR_NAME"] != "Kevin Tucker" || env["GIT_AUTHOR_EMAIL"] != "kevin@example.com" {
+		t.Errorf("identity was not exported: NAME=%q EMAIL=%q", env["GIT_AUTHOR_NAME"], env["GIT_AUTHOR_EMAIL"])
+	}
+	if !strings.Contains(env["GIT_SSH_COMMAND"], filepath.Join(dir, keydir.PrivateKeyName)) {
+		t.Errorf("GIT_SSH_COMMAND does not use the temporary key: %q", env["GIT_SSH_COMMAND"])
+	}
+	if env["GIT_CONFIG_GLOBAL"] != "/dev/null" {
+		t.Errorf("GIT_CONFIG_GLOBAL = %q, want /dev/null by default", env["GIT_CONFIG_GLOBAL"])
+	}
+}
+
+func TestStartNoIsolateConfig(t *testing.T) {
+	setupFakeKeygen(t)
+	app, _, errOut := newTestApp(t)
+	setInteractive(app)
+	var gotEnv []string
+	app.Exec = func(_ string, _ []string, env []string) error {
+		gotEnv = env
+		return nil
+	}
+
+	if err := runCLI(t, app, "start", "--allow-unencrypted", "--format", "text", "--base", t.TempDir(),
+		"--shell", "bash", "--no-isolate-config"); err != nil {
+		t.Fatal(err)
+	}
+	env := envMap(gotEnv)
+	if _, ok := env["GIT_CONFIG_GLOBAL"]; ok {
+		t.Errorf("--no-isolate-config still exported GIT_CONFIG_GLOBAL=%q", env["GIT_CONFIG_GLOBAL"])
+	}
+	if strings.Contains(errOut.String(), "No --name/--email given") {
+		t.Errorf("identity warning appeared despite --no-isolate-config:\n%s", errOut.String())
+	}
+}
+
+func TestStartWarnsWhenIdentityMissing(t *testing.T) {
+	setupFakeKeygen(t)
+	app, _, errOut := newTestApp(t)
+	setInteractive(app)
+	app.Exec = func(string, []string, []string) error { return nil }
+
+	if err := runCLI(t, app, "start", "--allow-unencrypted", "--format", "text", "--base", t.TempDir(),
+		"--shell", "bash"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut.String(), "No --name/--email given") {
+		t.Fatalf("missing identity warning:\n%s", errOut.String())
+	}
+}
+
+func TestStartRejectsHalfIdentity(t *testing.T) {
+	app, _, _ := newTestApp(t)
+	setInteractive(app)
+
+	err := runCLI(t, app, "start", "--name", "Kevin Tucker")
+	if err == nil || !strings.Contains(err.Error(), "must be given together") {
+		t.Fatalf("error = %v, want an identity pairing error", err)
 	}
 }
 

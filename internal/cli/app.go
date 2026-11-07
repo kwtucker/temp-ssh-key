@@ -2,10 +2,12 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
@@ -95,6 +97,16 @@ func validateFormat(format string) error {
 	default:
 		return fmt.Errorf("invalid format: %s (use text, qr, or png)", format)
 	}
+}
+
+func validateIdentity(name, email string) error {
+	if (name == "") != (email == "") {
+		return errors.New("--name and --email must be given together")
+	}
+	if strings.ContainsAny(name, "\r\n") || strings.ContainsAny(email, "\r\n") {
+		return errors.New("name and email must be single lines")
+	}
+	return nil
 }
 
 func validateShell(name string) error {

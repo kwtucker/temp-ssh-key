@@ -19,6 +19,7 @@ func Quote(s string) string {
 type Options struct {
 	KeyDir        string
 	KeyPath       string
+	Fingerprint   string
 	Name          string
 	Email         string
 	IsolateConfig bool
@@ -27,36 +28,67 @@ type Options struct {
 	ConfigCount string
 }
 
-// Exports returns eval-safe export statements for the key, Git transport, and
-// optional identity. The result ends with a newline.
-func Exports(opts Options) (string, error) {
+// Var is one environment assignment.
+type Var struct {
+	Name  string
+	Value string
+}
+
+// Vars returns the environment for a temporary key session: the key paths,
+// Git transport, and optional identity and config isolation.
+func Vars(opts Options) ([]Var, error) {
 	idx, err := parseConfigCount(opts.ConfigCount)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	sshCommand := fmt.Sprintf("ssh -F /dev/null -o IdentitiesOnly=yes -i %s", Quote(opts.KeyPath))
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "export KEY_DIR=%s\n", Quote(opts.KeyDir))
-	fmt.Fprintf(&b, "export KEY=%s\n", Quote(opts.KeyPath))
-	fmt.Fprintf(&b, "export GIT_SSH_COMMAND=%s\n", Quote(sshCommand))
-	fmt.Fprintf(&b, "export GIT_CONFIG_KEY_%d=core.sshCommand\n", idx)
-	fmt.Fprintf(&b, "export GIT_CONFIG_VALUE_%d=%s\n", idx, Quote(sshCommand))
-	fmt.Fprintf(&b, "export GIT_CONFIG_COUNT=%d\n", idx+1)
+	vars := []Var{
+		{Name: "KEY_DIR", Value: opts.KeyDir},
+		{Name: "KEY", Value: opts.KeyPath},
+	}
+	if opts.Fingerprint != "" {
+		vars = append(vars, Var{Name: "KEY_FINGERPRINT", Value: opts.Fingerprint})
+	}
+	vars = append(vars,
+		Var{Name: "GIT_SSH_COMMAND", Value: sshCommand},
+		Var{Name: fmt.Sprintf("GIT_CONFIG_KEY_%d", idx), Value: "core.sshCommand"},
+		Var{Name: fmt.Sprintf("GIT_CONFIG_VALUE_%d", idx), Value: sshCommand},
+		Var{Name: "GIT_CONFIG_COUNT", Value: strconv.Itoa(idx + 1)},
+	)
 
 	if opts.Name != "" {
-		fmt.Fprintf(&b, "export GIT_AUTHOR_NAME=%s\n", Quote(opts.Name))
-		fmt.Fprintf(&b, "export GIT_AUTHOR_EMAIL=%s\n", Quote(opts.Email))
-		fmt.Fprintf(&b, "export GIT_COMMITTER_NAME=%s\n", Quote(opts.Name))
-		fmt.Fprintf(&b, "export GIT_COMMITTER_EMAIL=%s\n", Quote(opts.Email))
+		vars = append(vars,
+			Var{Name: "GIT_AUTHOR_NAME", Value: opts.Name},
+			Var{Name: "GIT_AUTHOR_EMAIL", Value: opts.Email},
+			Var{Name: "GIT_COMMITTER_NAME", Value: opts.Name},
+			Var{Name: "GIT_COMMITTER_EMAIL", Value: opts.Email},
+		)
 	}
 
 	if opts.IsolateConfig {
-		b.WriteString("export GIT_CONFIG_GLOBAL=/dev/null\n")
-		b.WriteString("export GIT_CONFIG_SYSTEM=/dev/null\n")
+		vars = append(vars,
+			Var{Name: "GIT_CONFIG_GLOBAL", Value: "/dev/null"},
+			Var{Name: "GIT_CONFIG_SYSTEM", Value: "/dev/null"},
+		)
 	}
 
+	return vars, nil
+}
+
+// Exports returns eval-safe export statements for the key, Git transport, and
+// optional identity. The result ends with a newline.
+func Exports(opts Options) (string, error) {
+	vars, err := Vars(opts)
+	if err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
+	for _, v := range vars {
+		fmt.Fprintf(&b, "export %s=%s\n", v.Name, Quote(v.Value))
+	}
 	return b.String(), nil
 }
 

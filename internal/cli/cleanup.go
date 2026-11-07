@@ -17,16 +17,25 @@ import (
 func newCleanupCmd(app *App) *cobra.Command {
 	var remove bool
 	cmd := &cobra.Command{
-		Use:   "cleanup KEY_DIR",
+		Use:   "cleanup [KEY_DIR]",
 		Short: "Print or remove this tool's local key files",
 		Long: `Print the commands that delete only this tool's files. With --remove, delete
 them after prompting per file and require an interactive terminal.
 
+KEY_DIR defaults to $KEY_DIR, so inside a session started by 'start' or by
+'shell KEY_DIR' this is enough:
+
+  temp-ssh-key cleanup --remove
+
 Revoke the key's remote authorization first. Deleting local files is not
 revocation, and this command never contacts a remote.`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCleanup(app, args[0], remove)
+			dir := ""
+			if len(args) == 1 {
+				dir = args[0]
+			}
+			return runCleanup(app, dir, remove)
 		},
 	}
 	cmd.Flags().BoolVar(&remove, "remove", false, "delete the files after prompting per file")
@@ -34,6 +43,12 @@ revocation, and this command never contacts a remote.`,
 }
 
 func runCleanup(app *App, dir string, remove bool) error {
+	if dir == "" {
+		dir = app.Getenv("KEY_DIR")
+		if dir == "" {
+			return errors.New("KEY_DIR is not set; pass KEY_DIR or run inside a temp-ssh-key session")
+		}
+	}
 	dir, err := keydir.Validate(dir)
 	if err != nil {
 		return err

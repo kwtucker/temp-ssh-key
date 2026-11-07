@@ -3,12 +3,10 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/kwtucker/temp-ssh-key/internal/keydir"
 	"github.com/kwtucker/temp-ssh-key/internal/shellenv"
 )
 
@@ -20,13 +18,15 @@ func newShellCmd(app *App) *cobra.Command {
 		Long: `Enter a history-isolated zsh or bash. History storage is disabled for that
 shell, so commands typed there do not land in the parent's history file.
 
-When KEY_DIR is given, KEY_DIR and KEY are exported in the new shell. The
-parent shell records only the shell command; 'exit' returns to it.
+When KEY_DIR is given, the new shell gets the same exports as 'env': KEY_DIR,
+KEY, KEY_FINGERPRINT, GIT_SSH_COMMAND, and Git config isolation. The parent
+shell records only the shell command; 'exit' returns to it.
 
 Use the strict flow when the key should be created inside the isolated shell:
 
   temp-ssh-key shell
-  eval "$(temp-ssh-key create --format qr)"`,
+  eval "$(temp-ssh-key create --format qr)"
+  eval "$(temp-ssh-key env "$KEY_DIR")"`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runShell(app, shellName, args)
@@ -48,27 +48,21 @@ func runShell(app *App, shellName string, args []string) error {
 		return err
 	}
 
-	var keyDir, keyPath, fingerprint string
+	var vars []shellenv.Var
 	if len(args) == 1 {
-		validated, err := keydir.Validate(args[0])
+		opts, err := sessionOptions(app, args[0], "", "", true)
 		if err != nil {
 			return err
 		}
-		pub, err := keydir.ReadPublic(filepath.Join(validated, keydir.PublicKeyName))
+		vars, err = shellenv.Vars(opts)
 		if err != nil {
 			return err
 		}
-		keyPath = filepath.Join(validated, keydir.PrivateKeyName)
-		if err := keydir.CheckPrivate(keyPath); err != nil {
-			return err
-		}
-		keyDir = validated
-		fingerprint = pub.Fingerprint
 	}
-	return execShell(app, shellName, keyDir, keyPath, fingerprint)
+	return execShell(app, shellName, vars, sessionSteps(len(args) == 1))
 }
 
-func execShell(app *App, shellName, keyDir, keyPath, fingerprint string) error {
+func execShell(app *App, shellName string, vars []shellenv.Var, steps []string) error {
 	binary, err := app.LookPath(shellName)
 	if err != nil {
 		return fmt.Errorf("%s not found on PATH (needed for the isolated shell)", shellName)
@@ -76,10 +70,8 @@ func execShell(app *App, shellName, keyDir, keyPath, fingerprint string) error {
 
 	env := app.Environ()
 	env = setEnv(env, "TEMP_SSH_KEY_ISOLATED", "1")
-	if keyDir != "" {
-		env = setEnv(env, "KEY_DIR", keyDir)
-		env = setEnv(env, "KEY", keyPath)
-		env = setEnv(env, "KEY_FINGERPRINT", fingerprint)
+	for _, v := range vars {
+		env = setEnv(env, v.Name, v.Value)
 	}
 
 	var argv []string
@@ -96,8 +88,37 @@ func execShell(app *App, shellName, keyDir, keyPath, fingerprint string) error {
 		return errors.New("invalid shell: " + shellName)
 	}
 
-	app.note("Entering history-isolated %s; run env, git, and cleanup here ('exit' returns).", shellName)
+	if len(steps) > 0 {
+		app.note("Next steps:")
+		for i, step := range steps {
+			app.note("  %d. %s", i+1, step)
+		}
+	}
+	app.note("Entering history-isolated %s; history is disabled for that shell ('exit' returns).", shellName)
 	return app.Exec(binary, argv, env)
+}
+
+// sessionSteps returns the short checklist printed before the isolated shell
+// starts.
+func sessionSteps(hasKey bool) []string {
+	if hasKey {
+		return []string{
+			"Authorize the public key on your trusted device (scan the QR code or copy the text).",
+			"Run your git commands here; the key and GIT_SSH_COMMAND are already exported.",
+			"Revoke the key on your trusted device; deleting local files is not revocation.",
+			"temp-ssh-key cleanup --remove",
+			"exit",
+		}
+	}
+	return []string{
+		`eval "$(temp-ssh-key create --format qr)"`,
+		`eval "$(temp-ssh-key env "$KEY_DIR" --name "..." --email "...")"`,
+		"Authorize the public key on your trusted device.",
+		"Run your git commands here.",
+		"Revoke the key on your trusted device; deleting local files is not revocation.",
+		"temp-ssh-key cleanup --remove",
+		"exit",
+	}
 }
 
 func setEnv(env []string, key, value string) []string {
