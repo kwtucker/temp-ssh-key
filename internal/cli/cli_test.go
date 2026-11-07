@@ -403,6 +403,12 @@ func TestShellAlreadyIsolated(t *testing.T) {
 func TestShellWithoutKey(t *testing.T) {
 	app, _, _ := newTestApp(t)
 	app.Interactive = true
+	app.LookPath = func(name string) (string, error) {
+		if name == "zsh" {
+			return "/bin/zsh", nil
+		}
+		return "", errors.New("unexpected lookup: " + name)
+	}
 	var gotEnv []string
 	app.Exec = func(_ string, _ []string, env []string) error {
 		gotEnv = env
