@@ -1,5 +1,10 @@
 # temp-ssh-key
 
+[![ci](https://github.com/kwtucker/temp-ssh-key/actions/workflows/ci.yml/badge.svg)](https://github.com/kwtucker/temp-ssh-key/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/kwtucker/temp-ssh-key)](https://github.com/kwtucker/temp-ssh-key/releases/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/kwtucker/temp-ssh-key.svg)](https://pkg.go.dev/github.com/kwtucker/temp-ssh-key)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Create a disposable Ed25519 SSH key on an untrusted machine, authorize only its
 public key on a trusted device, use it for one git operation, then revoke and
 delete it.
@@ -18,7 +23,7 @@ not revocation.**
 With mise:
 
 ```sh
-mise use -g github:kwtucker/temp-ssh-key@0.2.0
+mise use -g github:kwtucker/temp-ssh-key@0.2.1
 ```
 
 With Go:
@@ -31,6 +36,32 @@ Or download a release archive for Linux or macOS (amd64/arm64), verify
 `checksums.txt`, and put the binary on `PATH`.
 
 `ssh-keygen` must be available. Nothing else is required at runtime.
+
+## Verify a release
+
+Release archives are built from a tagged commit by the GitHub Actions release
+workflow. Verify the checksum before running a downloaded binary:
+
+```sh
+# Linux example; adjust the file name for your OS and architecture.
+curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.2.1/temp-ssh-key_0.2.1_linux_amd64.tar.gz
+curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.2.1/checksums.txt
+grep "temp-ssh-key_0.2.1_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -
+```
+
+On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`.
+
+The release workflow also attests the archives and `checksums.txt` with GitHub
+artifact attestations. Auditors with an authenticated GitHub CLI can check the
+build provenance:
+
+```sh
+gh attestation verify temp-ssh-key_0.2.1_linux_amd64.tar.gz \
+  --repo kwtucker/temp-ssh-key
+```
+
+Checksums remain the primary manual check; attestations are optional and
+depend on GitHub's hosted service.
 
 ## Quick start
 
@@ -171,19 +202,38 @@ a keylogger, or a malicious `ssh-keygen` on `PATH`.
 - Revoke remote authorization before deleting local files.
 - Treat the isolated shell as a convenience, not as a security boundary.
 
+## Non-goals
+
+- Revoking remote authorization, editing SSH or Git configuration, or managing
+  `ssh-agent`. Those remain manual steps on a trusted device.
+- Replacing a general SSH or secret manager, or managing long-lived keys.
+- Protecting against a compromised operating system, keylogger, or malicious
+  binaries on `PATH`.
+- Providing anonymity or attribution resistance.
+- Supporting Windows releases.
+
 ## Development
 
+The development targets expect `golangci-lint` v2 and `govulncheck` on `PATH`.
+
 ```sh
+make fmt        # gofumpt + goimports via golangci-lint
+make fmt-check
+make lint       # golangci-lint run
+make vuln       # govulncheck ./...
 make test
-make vet
+make check      # formatting, lint, tests, and vulnerabilities
 make build
 ```
 
-Tests are local and offline. They fake `ssh-keygen` where needed and never
-contact a remote.
+Linting uses `.golangci.yml` with `default: none` and an explicit set of
+linters. Tests are local and offline. They fake `ssh-keygen` where needed and
+never contact a remote.
 
-Releases are built by GoReleaser for Linux and macOS on amd64 and arm64 with
-`CGO_ENABLED=0`. Tagging `v*` runs the release workflow.
+CI runs lint, `govulncheck`, and tests on Linux and macOS. Releases are built
+by GoReleaser for Linux and macOS on amd64 and arm64 with `CGO_ENABLED=0`, and
+the release workflow attests the published artifacts. Tagging `v*` runs the
+release workflow.
 
 ## License
 
