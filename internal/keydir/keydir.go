@@ -192,7 +192,7 @@ func readString(b []byte) (string, []byte, error) {
 		return "", nil, errors.New("truncated key blob")
 	}
 	n := binary.BigEndian.Uint32(b[:4])
-	if uint64(n) > uint64(len(b)-4) {
+	if int64(n) > int64(len(b)-4) {
 		return "", nil, errors.New("truncated key blob string")
 	}
 	return string(b[4 : 4+n]), b[4+n:], nil

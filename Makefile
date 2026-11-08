@@ -2,7 +2,7 @@ BINARY := temp-ssh-key
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: build install test vet fmt lint clean
+.PHONY: build install test vet fmt fmt-check lint vuln check clean
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/$(BINARY)
@@ -17,9 +17,18 @@ vet:
 	go vet ./...
 
 fmt:
-	gofmt -w $$(find . -name '*.go' -not -path './vendor/*')
+	golangci-lint fmt
 
-lint: fmt vet test
+fmt-check:
+	golangci-lint fmt --diff
+
+lint:
+	golangci-lint run
+
+vuln:
+	govulncheck ./...
+
+check: fmt-check lint test vuln
 
 clean:
 	rm -rf bin dist

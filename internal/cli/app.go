@@ -42,11 +42,9 @@ func NewApp(version string) *App {
 		StdoutIsTTY: isTerminal(os.Stdout),
 		StderrIsTTY: isTerminal(os.Stderr),
 		LookPath:    exec.LookPath,
-		Exec: func(path string, argv []string, env []string) error {
-			return syscall.Exec(path, argv, env)
-		},
-		Getenv:  os.Getenv,
-		Environ: os.Environ,
+		Exec:        syscall.Exec,
+		Getenv:      os.Getenv,
+		Environ:     os.Environ,
 	}
 }
 
