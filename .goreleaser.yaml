@@ -4,7 +4,7 @@ project_name: temp-ssh-key
 
 before:
   hooks:
-    - go mod tidy
+    - go mod tidy -diff
     - go test ./...
 
 builds:
@@ -40,7 +40,6 @@ changelog:
   sort: asc
   filters:
     exclude:
-      - "^docs:"
       - "^test:"
       - "^chore:"
 
