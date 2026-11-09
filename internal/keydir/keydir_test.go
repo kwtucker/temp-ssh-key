@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,6 +33,38 @@ func TestNewAndValidate(t *testing.T) {
 	}
 	if validated != dir {
 		t.Fatalf("Validate() = %q, want %q", validated, dir)
+	}
+}
+
+func TestNewClearsInheritedSetgid(t *testing.T) {
+	base := t.TempDir()
+	if err := os.Chmod(base, 0o700|os.ModeSetgid); err != nil {
+		t.Skipf("cannot set setgid on the base directory: %v", err)
+	}
+	info, err := os.Stat(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSetgid == 0 {
+		t.Skip("filesystem does not preserve the setgid bit")
+	}
+
+	dir, err := New(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err = os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSetgid != 0 {
+		t.Fatalf("new directory mode = %v, want no setgid bit", info.Mode())
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("new directory permissions = %o, want 700", got)
+	}
+	if _, err := Validate(dir); err != nil {
+		t.Fatalf("Validate rejected the new directory: %v", err)
 	}
 }
 
@@ -169,6 +202,108 @@ func TestReadPublicRejects(t *testing.T) {
 	}
 }
 
+func TestReadPublicRejectsOversizedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), PublicKeyName)
+	if err := os.WriteFile(path, bytes.Repeat([]byte("a"), maxPublicKeyBytes+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadPublic(path); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("ReadPublic() error = %v, want an oversized-file error", err)
+	}
+}
+
+func TestPublicFromPrivate(t *testing.T) {
+	line, wantFingerprint := testPublicKey(t)
+	path := filepath.Join(t.TempDir(), PrivateKeyName)
+	if err := os.WriteFile(path, privateKeyContainer(t, line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	pub, err := PublicFromPrivate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pub.Fingerprint != wantFingerprint {
+		t.Errorf("Fingerprint = %q, want %q", pub.Fingerprint, wantFingerprint)
+	}
+	if !strings.HasPrefix(pub.Line, "ssh-ed25519 ") {
+		t.Errorf("Line = %q, want an ssh-ed25519 public key", pub.Line)
+	}
+}
+
+func TestPublicFromPrivateRejects(t *testing.T) {
+	line, _ := testPublicKey(t)
+	container := privateKeyContainer(t, line)
+	block, _ := pem.Decode(container)
+	if block == nil {
+		t.Fatal("test helper did not produce a PEM block")
+	}
+	tests := []struct {
+		name    string
+		content []byte
+	}{
+		{name: "not PEM", content: []byte("private\n")},
+		{name: "wrong PEM type", content: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("x")})},
+		{name: "not OpenSSH", content: pem.EncodeToMemory(&pem.Block{Type: "OPENSSH PRIVATE KEY", Bytes: []byte("private\n")})},
+		{name: "truncated header", content: pem.EncodeToMemory(&pem.Block{Type: "OPENSSH PRIVATE KEY", Bytes: block.Bytes[:20]})},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), PrivateKeyName)
+			if err := os.WriteFile(path, tt.content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := PublicFromPrivate(path); err == nil {
+				t.Fatalf("PublicFromPrivate(%q) succeeded, want error", tt.name)
+			}
+		})
+	}
+}
+
+func TestPublicFromPrivateRejectsOversizedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), PrivateKeyName)
+	if err := os.WriteFile(path, bytes.Repeat([]byte("a"), maxPrivateKeyBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PublicFromPrivate(path); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("PublicFromPrivate() error = %v, want an oversized-file error", err)
+	}
+}
+
+func TestVerify(t *testing.T) {
+	line, fingerprint := testPublicKey(t)
+	dir, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, PrivateKeyName), privateKeyContainer(t, line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	publicPath := filepath.Join(dir, PublicKeyName)
+	if err := os.WriteFile(publicPath, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gotDir, pub, err := Verify(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDir != dir {
+		t.Errorf("Verify() dir = %q, want %q", gotDir, dir)
+	}
+	if pub.Fingerprint != fingerprint {
+		t.Errorf("Fingerprint = %q, want %q", pub.Fingerprint, fingerprint)
+	}
+
+	otherLine, _ := testPublicKey(t)
+	if err := os.WriteFile(publicPath, []byte(otherLine+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Verify(dir); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("Verify() error = %v, want a mismatch error", err)
+	}
+}
+
 func TestUnexpected(t *testing.T) {
 	dir, err := New(t.TempDir())
 	if err != nil {
@@ -223,4 +358,39 @@ func testPublicKey(t *testing.T) (line, fingerprint string) {
 	fingerprint = "SHA256:" + base64.RawStdEncoding.EncodeToString(sum[:])
 	line = "ssh-ed25519 " + base64.StdEncoding.EncodeToString(blob.Bytes()) + " test"
 	return line, fingerprint
+}
+
+// privateKeyContainer builds an OpenSSH private key file containing the public
+// header. The parser only needs that header, so the private section is a
+// placeholder.
+func privateKeyContainer(t *testing.T, line string) []byte {
+	t.Helper()
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		t.Fatalf("test key has no key data: %q", line)
+	}
+	blob, err := base64.StdEncoding.DecodeString(fields[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var b bytes.Buffer
+	b.WriteString("openssh-key-v1\x00")
+	for _, field := range []string{"none", "none", ""} {
+		if err := binary.Write(&b, binary.BigEndian, uint32(len(field))); err != nil {
+			t.Fatal(err)
+		}
+		b.WriteString(field)
+	}
+	if err := binary.Write(&b, binary.BigEndian, uint32(1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := binary.Write(&b, binary.BigEndian, uint32(len(blob))); err != nil {
+		t.Fatal(err)
+	}
+	b.Write(blob)
+	if err := binary.Write(&b, binary.BigEndian, uint32(0)); err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "OPENSSH PRIVATE KEY", Bytes: b.Bytes()})
 }
