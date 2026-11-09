@@ -23,7 +23,7 @@ not revocation.**
 With mise:
 
 ```sh
-mise use -g github:kwtucker/temp-ssh-key@0.2.1
+mise use -g github:kwtucker/temp-ssh-key@0.2.2
 ```
 
 With Go:
@@ -46,9 +46,9 @@ workflow. Verify the checksum before running a downloaded binary:
 
 ```sh
 # Linux example; adjust the file name for your OS and architecture.
-curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.2.1/temp-ssh-key_0.2.1_linux_amd64.tar.gz
-curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.2.1/checksums.txt
-grep "temp-ssh-key_0.2.1_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -
+curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.2.2/temp-ssh-key_0.2.2_linux_amd64.tar.gz
+curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.2.2/checksums.txt
+grep "temp-ssh-key_0.2.2_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -
 ```
 
 On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`.
@@ -58,7 +58,7 @@ artifact attestations. Auditors with an authenticated GitHub CLI can check the
 build provenance:
 
 ```sh
-gh attestation verify temp-ssh-key_0.2.1_linux_amd64.tar.gz \
+gh attestation verify temp-ssh-key_0.2.2_linux_amd64.tar.gz \
   --repo kwtucker/temp-ssh-key
 ```
 
