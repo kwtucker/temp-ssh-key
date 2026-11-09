@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/spf13/cobra"
 
@@ -17,11 +18,11 @@ func newStartCmd(app *App) *cobra.Command {
 		Short: "Create a temporary key and enter an isolated Git shell",
 		Long: `Create a temporary key and enter a history-isolated shell in one step.
 
-The new shell exports KEY_DIR, KEY, KEY_FINGERPRINT, GIT_SSH_COMMAND, and the
-Git config override that forces this key. Pass --name and --email to export the
-commit identity too. Global and system Git config are ignored by default for
-predictable identity, rewrite rules, and signing; --no-isolate-config keeps
-that config instead.
+The new shell exports KEY_DIR, KEY, KEY_FINGERPRINT, GIT_SSH_COMMAND,
+GIT_TERMINAL_PROMPT=0, and the Git config override that forces this key. Pass
+--name and --email to export the commit identity too. Global and system Git
+config are ignored by default for predictable identity, rewrite rules, and
+signing; --no-isolate-config keeps that config instead.
 
 The parent shell records only 'start'. This is the convenience flow; use
 'shell' then 'create' when key generation itself must happen inside the
@@ -40,12 +41,21 @@ isolated shell.`,
 			if err := app.requireInteractive("start"); err != nil {
 				return err
 			}
+			if _, err := app.LookPath(shellName); err != nil {
+				return fmt.Errorf("%s not found on PATH (needed for the isolated shell)", shellName)
+			}
 
 			opts.emitAssignments = false
 			dir, _, err := runCreate(app, opts)
 			if err != nil {
 				return err
 			}
+			keepKey := false
+			defer func() {
+				if !keepKey {
+					removePartial(dir)
+				}
+			}()
 			if name == "" && !noIsolate {
 				app.note("No --name/--email given and Git config is isolated; set the identity in the repository or restart with them.")
 			}
@@ -57,7 +67,11 @@ isolated shell.`,
 			if err != nil {
 				return err
 			}
-			return execShell(app, shellName, vars, sessionSteps(true))
+			if err := execShell(app, shellName, vars, sessionSteps(true)); err != nil {
+				return err
+			}
+			keepKey = true
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&opts.format, "format", "text", "public key output: text, qr, or png")

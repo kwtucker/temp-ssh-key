@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+
+	"golang.org/x/term"
 )
 
 // App carries process-level dependencies so commands can be tested without a
@@ -49,11 +51,10 @@ func NewApp(version string) *App {
 }
 
 func isTerminal(f *os.File) bool {
-	info, err := f.Stat()
-	if err != nil {
+	if f == nil {
 		return false
 	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(f.Fd()))
 }
 
 func (a *App) note(format string, args ...any) {
@@ -84,6 +85,13 @@ func (a *App) requireStdoutTTY(what string) error {
 func (a *App) requireStderrTTY(what string) error {
 	if !a.StderrIsTTY {
 		return fmt.Errorf("%s needs an interactive terminal on stderr", what)
+	}
+	return nil
+}
+
+func (a *App) requireStdinStderrTTY(what string) error {
+	if !a.StdinIsTTY || !a.StderrIsTTY {
+		return fmt.Errorf("%s needs an interactive terminal on stdin and stderr; run this yourself, not through a tool call", what)
 	}
 	return nil
 }

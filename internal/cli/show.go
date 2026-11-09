@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"path/filepath"
-
 	"github.com/spf13/cobra"
 
 	"github.com/kwtucker/temp-ssh-key/internal/keydir"
@@ -38,11 +36,7 @@ func runShow(app *App, dir, format string) error {
 		}
 	}
 
-	dir, err := keydir.Validate(dir)
-	if err != nil {
-		return err
-	}
-	pub, err := keydir.ReadPublic(filepath.Join(dir, keydir.PublicKeyName))
+	_, pub, err := keydir.Verify(dir)
 	if err != nil {
 		return err
 	}

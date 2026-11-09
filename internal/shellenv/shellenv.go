@@ -53,6 +53,7 @@ func Vars(opts Options) ([]Var, error) {
 	}
 	vars = append(vars,
 		Var{Name: "GIT_SSH_COMMAND", Value: sshCommand},
+		Var{Name: "GIT_TERMINAL_PROMPT", Value: "0"},
 		Var{Name: fmt.Sprintf("GIT_CONFIG_KEY_%d", idx), Value: "core.sshCommand"},
 		Var{Name: fmt.Sprintf("GIT_CONFIG_VALUE_%d", idx), Value: sshCommand},
 		Var{Name: "GIT_CONFIG_COUNT", Value: strconv.Itoa(idx + 1)},

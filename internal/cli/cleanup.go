@@ -74,14 +74,18 @@ func runCleanup(app *App, dir string, remove bool) error {
 			}
 		}
 		if len(existing) > 0 {
-			fmt.Fprintf(app.Out, "rm -i %s\n", strings.Join(existing, " "))
+			if _, err := fmt.Fprintf(app.Out, "rm -i %s\n", strings.Join(existing, " ")); err != nil {
+				return fmt.Errorf("cannot write cleanup commands: %w", err)
+			}
 		}
-		fmt.Fprintf(app.Out, "rmdir %s\n", shellenv.Quote(dir))
+		if _, err := fmt.Fprintf(app.Out, "rmdir %s\n", shellenv.Quote(dir)); err != nil {
+			return fmt.Errorf("cannot write cleanup commands: %w", err)
+		}
 		app.note("Run those yourself in your terminal; this tool deleted nothing.")
 		return nil
 	}
 
-	if err := app.requireInteractive("cleanup --remove"); err != nil {
+	if err := app.requireStdinStderrTTY("cleanup --remove"); err != nil {
 		return err
 	}
 	app.note("Revoke remote authorization first; deleting local files is not revocation.")
@@ -126,7 +130,9 @@ func exists(path string) (bool, error) {
 }
 
 func confirm(reader *bufio.Reader, out io.Writer, prompt string) (bool, error) {
-	fmt.Fprintf(out, "%s [y/N] ", prompt)
+	if _, err := fmt.Fprintf(out, "%s [y/N] ", prompt); err != nil {
+		return false, fmt.Errorf("cannot write prompt: %w", err)
+	}
 	line, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return false, err

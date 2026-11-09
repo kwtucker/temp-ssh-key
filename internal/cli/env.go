@@ -22,7 +22,8 @@ func newEnvCmd(app *App) *cobra.Command {
 
 By default this also ignores global and system Git config in this shell for
 predictable identity, rewrite rules, and signing. --no-isolate-config keeps
-that config instead.
+that config instead. GIT_TERMINAL_PROMPT=0 prevents Git from waiting for
+credentials in a session where they should not be entered.
 
 This command contacts no remote and writes no files.`,
 		Args: cobra.ExactArgs(1),
@@ -52,18 +53,11 @@ func runEnv(app *App, dir, name, email string, noIsolate bool) error {
 // sessionOptions validates an existing key directory and returns the exports
 // for a Git session that uses it.
 func sessionOptions(app *App, dir, name, email string, isolate bool) (shellenv.Options, error) {
-	dir, err := keydir.Validate(dir)
-	if err != nil {
-		return shellenv.Options{}, err
-	}
-	pub, err := keydir.ReadPublic(filepath.Join(dir, keydir.PublicKeyName))
+	dir, pub, err := keydir.Verify(dir)
 	if err != nil {
 		return shellenv.Options{}, err
 	}
 	keyPath := filepath.Join(dir, keydir.PrivateKeyName)
-	if err := keydir.CheckPrivate(keyPath); err != nil {
-		return shellenv.Options{}, err
-	}
 	if err := validateIdentity(name, email); err != nil {
 		return shellenv.Options{}, err
 	}

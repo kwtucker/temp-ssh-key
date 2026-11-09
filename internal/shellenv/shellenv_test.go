@@ -46,6 +46,7 @@ func TestExports(t *testing.T) {
 		"export KEY='/tmp/temp-ssh-key.abc/id_ed25519'",
 		"export KEY_FINGERPRINT='SHA256:abc'",
 		`export GIT_SSH_COMMAND='ssh -F /dev/null -o IdentitiesOnly=yes -i '\''/tmp/temp-ssh-key.abc/id_ed25519'\'''`,
+		"export GIT_TERMINAL_PROMPT='0'",
 		"export GIT_CONFIG_KEY_2='core.sshCommand'",
 		`export GIT_CONFIG_VALUE_2='ssh -F /dev/null -o IdentitiesOnly=yes -i '\''/tmp/temp-ssh-key.abc/id_ed25519'\'''`,
 		"export GIT_CONFIG_COUNT='3'",
@@ -106,7 +107,7 @@ func TestVarsOrder(t *testing.T) {
 		names = append(names, v.Name)
 	}
 	want := []string{
-		"KEY_DIR", "KEY", "KEY_FINGERPRINT", "GIT_SSH_COMMAND",
+		"KEY_DIR", "KEY", "KEY_FINGERPRINT", "GIT_SSH_COMMAND", "GIT_TERMINAL_PROMPT",
 		"GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1", "GIT_CONFIG_COUNT",
 		"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
 		"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",

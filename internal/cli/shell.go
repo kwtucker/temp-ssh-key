@@ -19,8 +19,9 @@ func newShellCmd(app *App) *cobra.Command {
 shell, so commands typed there do not land in the parent's history file.
 
 When KEY_DIR is given, the new shell gets the same exports as 'env': KEY_DIR,
-KEY, KEY_FINGERPRINT, GIT_SSH_COMMAND, and Git config isolation. The parent
-shell records only the shell command; 'exit' returns to it.
+KEY, KEY_FINGERPRINT, GIT_SSH_COMMAND, GIT_TERMINAL_PROMPT=0, and Git config
+isolation. The parent shell records only the shell command; 'exit' returns to
+it.
 
 Use the strict flow when the key should be created inside the isolated shell:
 

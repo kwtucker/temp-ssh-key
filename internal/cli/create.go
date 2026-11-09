@@ -196,21 +196,26 @@ func render(app *App, dir, format, publicKey string, out io.Writer) error {
 
 func writePNG(dir, publicKey string) (string, error) {
 	path := filepath.Join(dir, keydir.PNGName)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.CreateTemp(dir, ".public-key-*.png")
 	if err != nil {
-		if errors.Is(err, fs.ErrExist) {
-			return "", fmt.Errorf("refusing to overwrite existing file: %s", path)
-		}
-		return "", fmt.Errorf("cannot create %s: %w", path, err)
+		return "", fmt.Errorf("cannot create a PNG in %s: %w", dir, err)
 	}
+	tmp := f.Name()
+	removeTemp := func() { _ = os.Remove(tmp) }
 	if err := qr.PNG(f, publicKey, 512); err != nil {
-		f.Close()
-		os.Remove(path)
+		_ = f.Close()
+		removeTemp()
 		return "", err
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(path)
+		removeTemp()
 		return "", fmt.Errorf("cannot finish %s: %w", path, err)
+	}
+	// Rename replaces an existing PNG atomically, so 'show --format png' is
+	// repeatable, and it replaces a symlink rather than writing through it.
+	if err := os.Rename(tmp, path); err != nil {
+		removeTemp()
+		return "", fmt.Errorf("cannot install %s: %w", path, err)
 	}
 	return path, nil
 }

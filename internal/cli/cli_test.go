@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/pem"
 	"errors"
 	"os"
 	"os/exec"
@@ -42,11 +43,30 @@ func setInteractive(app *App) {
 	app.StderrIsTTY = true
 }
 
+type errorWriter struct {
+	err error
+}
+
+func (w errorWriter) Write([]byte) (int, error) {
+	return 0, w.err
+}
+
 func runCLI(t *testing.T, app *App, args ...string) error {
 	t.Helper()
 	cmd := NewRootCmd(app)
 	cmd.SetArgs(args)
 	return cmd.Execute()
+}
+
+func TestIsTerminalRejectsDevNull(t *testing.T) {
+	f, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if isTerminal(f) {
+		t.Fatal("isTerminal treated /dev/null as a terminal")
+	}
 }
 
 func TestVersion(t *testing.T) {
@@ -245,6 +265,54 @@ func TestShowQRRequiresTTY(t *testing.T) {
 	}
 }
 
+func TestShowRejectsMismatchedKey(t *testing.T) {
+	dir, _, _ := makeKeyDir(t)
+	otherLine, _ := testKey(t)
+	if err := os.WriteFile(filepath.Join(dir, keydir.PublicKeyName), []byte(otherLine+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app, out, _ := newTestApp(t)
+
+	err := runCLI(t, app, "show", dir, "--format", "text")
+	if err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("error = %v, want a private/public mismatch error", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+}
+
+func TestShowRejectsMissingPrivateKey(t *testing.T) {
+	dir, _, _ := makeKeyDir(t)
+	if err := os.Remove(filepath.Join(dir, keydir.PrivateKeyName)); err != nil {
+		t.Fatal(err)
+	}
+	app, _, _ := newTestApp(t)
+
+	if err := runCLI(t, app, "show", dir, "--format", "text"); err == nil {
+		t.Fatal("show succeeded without a private key")
+	}
+}
+
+func TestShowPNGRepeatable(t *testing.T) {
+	dir, _, _ := makeKeyDir(t)
+	app, out, _ := newTestApp(t)
+
+	for run := 1; run <= 2; run++ {
+		out.Reset()
+		if err := runCLI(t, app, "show", dir, "--format", "png"); err != nil {
+			t.Fatalf("show --format png run %d: %v", run, err)
+		}
+		path := filepath.Join(dir, keydir.PNGName)
+		if got := strings.TrimSpace(out.String()); got != path {
+			t.Fatalf("run %d stdout = %q, want %q", run, got, path)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("run %d did not create the PNG: %v", run, err)
+		}
+	}
+}
+
 func TestEnv(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, out, _ := newTestApp(t)
@@ -263,6 +331,7 @@ func TestEnv(t *testing.T) {
 		"export KEY_DIR='" + dir + "'",
 		"export KEY='" + filepath.Join(dir, keydir.PrivateKeyName) + "'",
 		"export KEY_FINGERPRINT='",
+		"export GIT_TERMINAL_PROMPT='0'",
 		"export GIT_CONFIG_KEY_2='core.sshCommand'",
 		"export GIT_CONFIG_COUNT='3'",
 		"export GIT_AUTHOR_NAME='Kevin Tucker'",
@@ -393,6 +462,67 @@ func TestCleanupRemoveRequiresTTY(t *testing.T) {
 	}
 }
 
+func TestCleanupRemoveRequiresStderrTTY(t *testing.T) {
+	dir, _, _ := makeKeyDir(t)
+	app, _, _ := newTestApp(t)
+	app.StdinIsTTY = true
+	app.StderrIsTTY = false
+
+	if err := runCLI(t, app, "cleanup", dir, "--remove"); err == nil {
+		t.Fatal("cleanup --remove succeeded without a stderr terminal")
+	}
+	if _, err := os.Stat(filepath.Join(dir, keydir.PrivateKeyName)); err != nil {
+		t.Fatalf("cleanup removed files without an interactive stderr: %v", err)
+	}
+}
+
+func TestCleanupRemoveWithCapturedStdout(t *testing.T) {
+	dir, _, _ := makeKeyDir(t)
+	app, out, _ := newTestApp(t)
+	app.StdinIsTTY = true
+	app.StderrIsTTY = true
+	app.StdoutIsTTY = false
+	app.In = strings.NewReader("y\ny\n")
+
+	if err := runCLI(t, app, "cleanup", dir, "--remove"); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty because prompts go to stderr", out.String())
+	}
+	if _, err := os.Lstat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("key directory still exists: %v", err)
+	}
+}
+
+func TestCleanupRemovePromptWriteError(t *testing.T) {
+	dir, _, _ := makeKeyDir(t)
+	app, _, _ := newTestApp(t)
+	app.StdinIsTTY = true
+	app.StderrIsTTY = true
+	app.In = strings.NewReader("y\ny\n")
+	app.Err = errorWriter{err: errors.New("stderr closed")}
+
+	err := runCLI(t, app, "cleanup", dir, "--remove")
+	if err == nil || !strings.Contains(err.Error(), "cannot write prompt") {
+		t.Fatalf("error = %v, want a prompt-write error", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, keydir.PrivateKeyName)); err != nil {
+		t.Fatalf("cleanup removed files after a failed prompt: %v", err)
+	}
+}
+
+func TestCleanupPrintWriteError(t *testing.T) {
+	dir, _, _ := makeKeyDir(t)
+	app, _, _ := newTestApp(t)
+	app.Out = errorWriter{err: errors.New("stdout closed")}
+
+	err := runCLI(t, app, "cleanup", dir)
+	if err == nil || !strings.Contains(err.Error(), "cannot write cleanup commands") {
+		t.Fatalf("error = %v, want a cleanup-write error", err)
+	}
+}
+
 func TestCleanupUnexpectedFile(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	extra := filepath.Join(dir, "extra")
@@ -456,6 +586,9 @@ func TestShell(t *testing.T) {
 	}
 	if !strings.Contains(env["GIT_SSH_COMMAND"], filepath.Join(dir, keydir.PrivateKeyName)) {
 		t.Errorf("GIT_SSH_COMMAND does not use the temporary key: %q", env["GIT_SSH_COMMAND"])
+	}
+	if env["GIT_TERMINAL_PROMPT"] != "0" {
+		t.Errorf("GIT_TERMINAL_PROMPT = %q, want 0", env["GIT_TERMINAL_PROMPT"])
 	}
 	if env["GIT_CONFIG_KEY_0"] != "core.sshCommand" || env["GIT_CONFIG_COUNT"] != "1" {
 		t.Errorf("missing Git config override: KEY_0=%q COUNT=%q", env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_COUNT"])
@@ -559,6 +692,9 @@ func TestStart(t *testing.T) {
 	if !strings.Contains(env["GIT_SSH_COMMAND"], filepath.Join(dir, keydir.PrivateKeyName)) {
 		t.Errorf("GIT_SSH_COMMAND does not use the temporary key: %q", env["GIT_SSH_COMMAND"])
 	}
+	if env["GIT_TERMINAL_PROMPT"] != "0" {
+		t.Errorf("GIT_TERMINAL_PROMPT = %q, want 0", env["GIT_TERMINAL_PROMPT"])
+	}
 	if env["GIT_CONFIG_GLOBAL"] != "/dev/null" {
 		t.Errorf("GIT_CONFIG_GLOBAL = %q, want /dev/null by default", env["GIT_CONFIG_GLOBAL"])
 	}
@@ -636,6 +772,60 @@ func TestStartRequiresTTY(t *testing.T) {
 	}
 }
 
+func TestStartCleansUpWhenShellFails(t *testing.T) {
+	setupFakeKeygen(t)
+	app, _, _ := newTestApp(t)
+	setInteractive(app)
+	base := t.TempDir()
+	app.LookPath = func(name string) (string, error) {
+		if name == "zsh" {
+			return "", errors.New("zsh is not installed")
+		}
+		return exec.LookPath(name)
+	}
+
+	err := runCLI(t, app, "start", "--allow-unencrypted", "--format", "text", "--base", base)
+	if err == nil {
+		t.Fatal("start succeeded without a shell")
+	}
+	entries, readErr := os.ReadDir(base)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		t.Fatalf("start left key material behind after the shell failed: %v", names)
+	}
+}
+
+func TestStartCleansUpWhenSessionSetupFails(t *testing.T) {
+	setupFakeKeygen(t)
+	app, _, _ := newTestApp(t)
+	setInteractive(app)
+	base := t.TempDir()
+	app.Getenv = func(key string) string {
+		if key == "GIT_CONFIG_COUNT" {
+			return "not-a-number"
+		}
+		return ""
+	}
+
+	err := runCLI(t, app, "start", "--allow-unencrypted", "--format", "text", "--base", base, "--shell", "bash")
+	if err == nil {
+		t.Fatal("start succeeded with an invalid GIT_CONFIG_COUNT")
+	}
+	entries, readErr := os.ReadDir(base)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("start left key material behind after session setup failed: %v", entries)
+	}
+}
+
 func TestUnknownCommand(t *testing.T) {
 	app, _, _ := newTestApp(t)
 	if err := runCLI(t, app, "nope"); err == nil {
@@ -648,6 +838,12 @@ func setupFakeKeygen(t *testing.T) (line, fingerprint string) {
 	line, fingerprint = testKey(t)
 	t.Setenv("FAKE_PUB", line)
 
+	privateFile := filepath.Join(t.TempDir(), "fake-private-key")
+	if err := os.WriteFile(privateFile, privateKeyContainer(t, line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_PRIVATE", privateFile)
+
 	binDir := t.TempDir()
 	script := filepath.Join(binDir, "ssh-keygen")
 	content := `#!/bin/sh
@@ -658,7 +854,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$f" ] || exit 2
-printf 'private\n' > "$f"
+cat "$FAKE_PRIVATE" > "$f" || exit 2
 printf '%s\n' "$FAKE_PUB" > "$f.pub"
 chmod 600 "$f" "$f.pub"
 `
@@ -677,13 +873,48 @@ func makeKeyDir(t *testing.T) (dir, line, fingerprint string) {
 		t.Fatal(err)
 	}
 	line, fingerprint = testKey(t)
-	if err := os.WriteFile(filepath.Join(dir, keydir.PrivateKeyName), []byte("private\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, keydir.PrivateKeyName), privateKeyContainer(t, line), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, keydir.PublicKeyName), []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dir, line, fingerprint
+}
+
+// privateKeyContainer builds an OpenSSH private key file containing the public
+// header. The parser only needs that header, so the private section is a
+// placeholder.
+func privateKeyContainer(t *testing.T, line string) []byte {
+	t.Helper()
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		t.Fatalf("test key has no key data: %q", line)
+	}
+	blob, err := base64.StdEncoding.DecodeString(fields[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var b bytes.Buffer
+	b.WriteString("openssh-key-v1\x00")
+	for _, field := range []string{"none", "none", ""} {
+		if err := binary.Write(&b, binary.BigEndian, uint32(len(field))); err != nil {
+			t.Fatal(err)
+		}
+		b.WriteString(field)
+	}
+	if err := binary.Write(&b, binary.BigEndian, uint32(1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := binary.Write(&b, binary.BigEndian, uint32(len(blob))); err != nil {
+		t.Fatal(err)
+	}
+	b.Write(blob)
+	if err := binary.Write(&b, binary.BigEndian, uint32(0)); err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "OPENSSH PRIVATE KEY", Bytes: b.Bytes()})
 }
 
 func testKey(t *testing.T) (line, fingerprint string) {
