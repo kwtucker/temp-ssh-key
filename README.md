@@ -35,7 +35,9 @@ go install github.com/kwtucker/temp-ssh-key/cmd/temp-ssh-key@latest
 Or download a release archive for Linux or macOS (amd64/arm64), verify
 `checksums.txt`, and put the binary on `PATH`.
 
-`ssh-keygen` must be available. Nothing else is required at runtime.
+`ssh-keygen` must be available. Git 2.32 or newer is required for the
+`GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` isolation variables; earlier
+versions still work if you pass `--no-isolate-config`.
 
 ## Verify a release
 
@@ -73,9 +75,10 @@ temp-ssh-key start --format qr \
   --name "Your Name" --email "you@example.com"
 ```
 
-`start` exports the key paths, `GIT_SSH_COMMAND`, the Git config override, the
-identity, and Git config isolation into the new shell. Scan the QR code on the
-trusted device and authorize the public key there. Then do the Git work:
+`start` exports the key paths, `GIT_SSH_COMMAND`, `GIT_TERMINAL_PROMPT=0`, the
+Git config override, the identity, and Git config isolation into the new shell.
+Scan the QR code on the trusted device and authorize the public key there. Then
+do the Git work:
 
 ```sh
 git add -A
@@ -139,7 +142,23 @@ passed as an argument, environment variable, or file. `--allow-unencrypted`
 skips the passphrase and is never implicit.
 
 `--format png` writes `public-key.png` inside the key directory and prints its
-path. QR output requires a terminal on stderr.
+path. Repeating the command overwrites the file atomically, so a crashed or
+interrupted write cannot leave a partial image behind. QR output requires a
+terminal on stderr.
+
+### `show`
+
+```sh
+temp-ssh-key show "$KEY_DIR"              # text
+temp-ssh-key show "$KEY_DIR" --format qr  # terminal QR code
+temp-ssh-key show "$KEY_DIR" --format png # write public-key.png
+```
+
+`show` verifies that the private key is readable and that its public half
+matches `id_ed25519.pub` before displaying anything. It rejects mismatched,
+missing, or malformed files. A passphrase is not needed for this check because
+the public half of an OpenSSH private key is stored unencrypted. PNG output is
+repeatable and replaces an existing image atomically.
 
 ### `shell` and `start`
 
@@ -164,12 +183,12 @@ revoke-before-cleanup reminder.
 eval "$(temp-ssh-key env "$KEY_DIR" --name "Your Name" --email "you@example.com")"
 ```
 
-This exports `KEY_DIR`, `KEY`, `KEY_FINGERPRINT`, `GIT_SSH_COMMAND`, a
-`core.sshCommand` override, and optionally the author and committer identity. By
-default it also sets `GIT_CONFIG_GLOBAL=/dev/null` and
-`GIT_CONFIG_SYSTEM=/dev/null` so global rewrite rules, signing configuration, and
-identity do not leak into the operation. Use `--no-isolate-config` to keep your
-normal Git config.
+This exports `KEY_DIR`, `KEY`, `KEY_FINGERPRINT`, `GIT_SSH_COMMAND`,
+`GIT_TERMINAL_PROMPT=0`, a `core.sshCommand` override, and optionally the author
+and committer identity. By default it also sets `GIT_CONFIG_GLOBAL=/dev/null`
+and `GIT_CONFIG_SYSTEM=/dev/null` so global rewrite rules, signing
+configuration, and identity do not leak into the operation. Use
+`--no-isolate-config` to keep your normal Git config.
 
 `shell KEY_DIR` exports the same session environment directly into the new
 shell, so `env` is only needed in the strict flow.
@@ -188,6 +207,10 @@ export. Passing the path explicitly still works.
 Cleanup refuses directories that are symlinks, not owned by you, not mode 700,
 or not named `temp-ssh-key.*`. It also refuses to touch a directory containing
 anything other than `id_ed25519`, `id_ed25519.pub`, and `public-key.png`.
+
+`--remove` requires an interactive terminal on both stdin and stderr. Prompts
+are written to stderr so they do not mix with command output, and stdout may be
+captured. A failed prompt write aborts before deleting anything.
 
 ## Security model
 
@@ -230,10 +253,14 @@ Linting uses `.golangci.yml` with `default: none` and an explicit set of
 linters. Tests are local and offline. They fake `ssh-keygen` where needed and
 never contact a remote.
 
-CI runs lint, `govulncheck`, and tests on Linux and macOS. Releases are built
-by GoReleaser for Linux and macOS on amd64 and arm64 with `CGO_ENABLED=0`, and
-the release workflow attests the published artifacts. Tagging `v*` runs the
-release workflow.
+CI runs lint, a module-tidiness check, `govulncheck`, and tests; tests run on
+Linux and macOS while lint and vulnerability checks run on Linux. Tagging `v*`
+runs the same CI workflow before GoReleaser builds Linux and macOS release
+archives for amd64 and arm64 with `CGO_ENABLED=0` and attests the published
+artifacts.
+
+Release notes are generated from commit messages. Test and chore commits are
+excluded; documentation commits are included.
 
 ## License
 
