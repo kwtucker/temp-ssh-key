@@ -28,28 +28,39 @@ func TestQuote(t *testing.T) {
 }
 
 func TestExports(t *testing.T) {
-	got, err := Exports(Options{
+	got := Exports(Options{
 		KeyDir:        "/tmp/temp-ssh-key.abc",
 		KeyPath:       "/tmp/temp-ssh-key.abc/id_ed25519",
 		Fingerprint:   "SHA256:abc",
 		Name:          "Kevin Tucker",
 		Email:         "kevin@example.com",
 		IsolateConfig: true,
-		ConfigCount:   "2",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	wantLines := []string{
+		"unset SSH_AUTH_SOCK",
+		"unset SSH_ASKPASS",
+		"unset SSH_ASKPASS_REQUIRE",
+		"unset GIT_ASKPASS",
+		"unset GIT_CONFIG_PARAMETERS",
+		"unset GIT_CONFIG_COUNT",
+		"unset GIT_DIR",
+		"unset GIT_WORK_TREE",
+		"unset GIT_COMMON_DIR",
+		"unset GIT_INDEX_FILE",
+		"unset GIT_OBJECT_DIRECTORY",
+		"unset GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"unset GIT_NAMESPACE",
+		"unset GIT_SSH",
+		"unset GIT_SSH_VARIANT",
 		"export KEY_DIR='/tmp/temp-ssh-key.abc'",
 		"export KEY='/tmp/temp-ssh-key.abc/id_ed25519'",
 		"export KEY_FINGERPRINT='SHA256:abc'",
 		`export GIT_SSH_COMMAND='ssh -F /dev/null -o IdentitiesOnly=yes -i '\''/tmp/temp-ssh-key.abc/id_ed25519'\'''`,
 		"export GIT_TERMINAL_PROMPT='0'",
-		"export GIT_CONFIG_KEY_2='core.sshCommand'",
-		`export GIT_CONFIG_VALUE_2='ssh -F /dev/null -o IdentitiesOnly=yes -i '\''/tmp/temp-ssh-key.abc/id_ed25519'\'''`,
-		"export GIT_CONFIG_COUNT='3'",
+		"export GIT_CONFIG_KEY_0='core.sshCommand'",
+		`export GIT_CONFIG_VALUE_0='ssh -F /dev/null -o IdentitiesOnly=yes -i '\''/tmp/temp-ssh-key.abc/id_ed25519'\'''`,
+		"export GIT_CONFIG_COUNT='1'",
 		"export GIT_AUTHOR_NAME='Kevin Tucker'",
 		"export GIT_AUTHOR_EMAIL='kevin@example.com'",
 		"export GIT_COMMITTER_NAME='Kevin Tucker'",
@@ -69,46 +80,39 @@ func TestExports(t *testing.T) {
 }
 
 func TestExportsNoIdentityOrIsolation(t *testing.T) {
-	got, err := Exports(Options{
+	got := Exports(Options{
 		KeyDir:  "/tmp/k",
 		KeyPath: "/tmp/k/id_ed25519",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, forbidden := range []string{"KEY_FINGERPRINT", "GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"} {
 		if strings.Contains(got, forbidden) {
 			t.Errorf("output unexpectedly contains %s:\n%s", forbidden, got)
 		}
 	}
 	if !strings.Contains(got, "export GIT_CONFIG_KEY_0='core.sshCommand'\n") {
-		t.Errorf("missing zero-count override:\n%s", got)
+		t.Errorf("missing single config override:\n%s", got)
 	}
 	if !strings.Contains(got, "export GIT_CONFIG_COUNT='1'\n") {
-		t.Errorf("missing incremented count:\n%s", got)
+		t.Errorf("missing config count:\n%s", got)
 	}
 }
 
 func TestVarsOrder(t *testing.T) {
-	vars, err := Vars(Options{
+	vars := Vars(Options{
 		KeyDir:        "/tmp/k",
 		KeyPath:       "/tmp/k/id_ed25519",
 		Fingerprint:   "SHA256:abc",
 		Name:          "Kevin Tucker",
 		Email:         "kevin@example.com",
 		IsolateConfig: true,
-		ConfigCount:   "1",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var names []string
 	for _, v := range vars {
 		names = append(names, v.Name)
 	}
 	want := []string{
 		"KEY_DIR", "KEY", "KEY_FINGERPRINT", "GIT_SSH_COMMAND", "GIT_TERMINAL_PROMPT",
-		"GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1", "GIT_CONFIG_COUNT",
+		"GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_COUNT",
 		"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
 		"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
 	}
@@ -117,13 +121,44 @@ func TestVarsOrder(t *testing.T) {
 	}
 }
 
-func TestExportsRejectsInvalidConfigCount(t *testing.T) {
-	for _, raw := range []string{"abc", "-1", "+1", "1.5", " 1"} {
-		t.Run(raw, func(t *testing.T) {
-			if _, err := Exports(Options{ConfigCount: raw}); err == nil {
-				t.Fatalf("Exports accepted GIT_CONFIG_COUNT=%q", raw)
-			}
-		})
+func TestExportsUnsetsInheritedEnvironment(t *testing.T) {
+	got := Exports(Options{KeyDir: "/tmp/k", KeyPath: "/tmp/k/id_ed25519"})
+	for _, name := range []string{"SSH_AUTH_SOCK", "GIT_ASKPASS", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_DIR"} {
+		if !strings.Contains(got, "unset "+name+"\n") {
+			t.Errorf("output does not unset %s:\n%s", name, got)
+		}
+	}
+}
+
+func TestSanitize(t *testing.T) {
+	in := []string{
+		"PATH=/bin",
+		"SSH_AUTH_SOCK=/tmp/agent.sock",
+		"GIT_DIR=/somewhere/.git",
+		"GIT_ASKPASS=/tmp/askpass",
+		"GIT_SSH_COMMAND=ssh -i legitimate",
+		"GIT_CONFIG_PARAMETERS='core.sshCommand=evil'",
+		"GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_KEY_0=core.pager",
+		"GIT_CONFIG_VALUE_0=/tmp/evil",
+		"GIT_CONFIG_KEY_9=core.hooksPath",
+		"GIT_CONFIG_VALUE_9=/tmp/hooks",
+		"GIT_CONFIG_KEY=keep",
+		"GIT_TRACE=1",
+		"GIT_DIR", // malformed entry without '='
+	}
+	got := Sanitize(in)
+	want := []string{
+		"PATH=/bin",
+		"GIT_SSH_COMMAND=ssh -i legitimate",
+		"GIT_CONFIG_KEY=keep",
+		"GIT_TRACE=1",
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Sanitize() = %q, want %q", got, want)
+	}
+	if len(in) != 14 || in[1] != "SSH_AUTH_SOCK=/tmp/agent.sock" {
+		t.Fatal("Sanitize modified its input")
 	}
 }
 

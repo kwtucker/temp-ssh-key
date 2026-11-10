@@ -51,14 +51,11 @@ func runShell(app *App, shellName string, args []string) error {
 
 	var vars []shellenv.Var
 	if len(args) == 1 {
-		opts, err := sessionOptions(app, args[0], "", "", true)
+		opts, err := sessionOptions(args[0], "", "", true)
 		if err != nil {
 			return err
 		}
-		vars, err = shellenv.Vars(opts)
-		if err != nil {
-			return err
-		}
+		vars = shellenv.Vars(opts)
 	}
 	return execShell(app, shellName, vars, sessionSteps(len(args) == 1))
 }
@@ -69,7 +66,7 @@ func execShell(app *App, shellName string, vars []shellenv.Var, steps []string) 
 		return fmt.Errorf("%s not found on PATH (needed for the isolated shell)", shellName)
 	}
 
-	env := app.Environ()
+	env := shellenv.Sanitize(app.Environ())
 	env = setEnv(env, "TEMP_SSH_KEY_ISOLATED", "1")
 	for _, v := range vars {
 		env = setEnv(env, v.Name, v.Value)

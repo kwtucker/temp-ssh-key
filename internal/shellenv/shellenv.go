@@ -4,7 +4,6 @@ package shellenv
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 )
 
@@ -23,9 +22,6 @@ type Options struct {
 	Name          string
 	Email         string
 	IsolateConfig bool
-	// ConfigCount is the raw GIT_CONFIG_COUNT value from the caller's
-	// environment. An empty value means zero.
-	ConfigCount string
 }
 
 // Var is one environment assignment.
@@ -34,14 +30,58 @@ type Var struct {
 	Value string
 }
 
+// unsetVars are inherited variables that can redirect SSH or Git to
+// credentials, repositories, or programs the user did not choose for this
+// session. The isolated session removes them instead of trusting the machine.
+var unsetVars = []string{
+	"SSH_AUTH_SOCK", // use only the explicit key, not an inherited agent
+	"SSH_ASKPASS",
+	"SSH_ASKPASS_REQUIRE",
+	"GIT_ASKPASS",
+	"GIT_CONFIG_PARAMETERS", // undocumented config injection channel
+	"GIT_CONFIG_COUNT",      // reset before setting the session's single entry
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_COMMON_DIR",
+	"GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_NAMESPACE",
+	"GIT_SSH",
+	"GIT_SSH_VARIANT",
+}
+
+// Sanitize returns a copy of env without inherited variables that could
+// redirect the session. It also drops numbered Git config entries.
+func Sanitize(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, item := range env {
+		name, _, _ := strings.Cut(item, "=")
+		if isUnsetVar(name) || hasConfigIndex(name) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func isUnsetVar(name string) bool {
+	for _, candidate := range unsetVars {
+		if name == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func hasConfigIndex(name string) bool {
+	return strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||
+		strings.HasPrefix(name, "GIT_CONFIG_VALUE_")
+}
+
 // Vars returns the environment for a temporary key session: the key paths,
 // Git transport, and optional identity and config isolation.
-func Vars(opts Options) ([]Var, error) {
-	idx, err := parseConfigCount(opts.ConfigCount)
-	if err != nil {
-		return nil, err
-	}
-
+func Vars(opts Options) []Var {
 	sshCommand := fmt.Sprintf("ssh -F /dev/null -o IdentitiesOnly=yes -i %s", Quote(opts.KeyPath))
 
 	vars := []Var{
@@ -54,9 +94,9 @@ func Vars(opts Options) ([]Var, error) {
 	vars = append(vars,
 		Var{Name: "GIT_SSH_COMMAND", Value: sshCommand},
 		Var{Name: "GIT_TERMINAL_PROMPT", Value: "0"},
-		Var{Name: fmt.Sprintf("GIT_CONFIG_KEY_%d", idx), Value: "core.sshCommand"},
-		Var{Name: fmt.Sprintf("GIT_CONFIG_VALUE_%d", idx), Value: sshCommand},
-		Var{Name: "GIT_CONFIG_COUNT", Value: strconv.Itoa(idx + 1)},
+		Var{Name: "GIT_CONFIG_KEY_0", Value: "core.sshCommand"},
+		Var{Name: "GIT_CONFIG_VALUE_0", Value: sshCommand},
+		Var{Name: "GIT_CONFIG_COUNT", Value: "1"},
 	)
 
 	if opts.Name != "" {
@@ -75,38 +115,21 @@ func Vars(opts Options) ([]Var, error) {
 		)
 	}
 
-	return vars, nil
+	return vars
 }
 
-// Exports returns eval-safe export statements for the key, Git transport, and
-// optional identity. The result ends with a newline.
-func Exports(opts Options) (string, error) {
-	vars, err := Vars(opts)
-	if err != nil {
-		return "", err
-	}
-
+// Exports returns eval-safe statements that reset inherited session variables
+// and export the key, Git transport, and optional identity. The result ends
+// with a newline.
+func Exports(opts Options) string {
 	var b strings.Builder
-	for _, v := range vars {
+	for _, name := range unsetVars {
+		fmt.Fprintf(&b, "unset %s\n", name)
+	}
+	for _, v := range Vars(opts) {
 		fmt.Fprintf(&b, "export %s=%s\n", v.Name, Quote(v.Value))
 	}
-	return b.String(), nil
-}
-
-func parseConfigCount(raw string) (int, error) {
-	if raw == "" {
-		return 0, nil
-	}
-	for _, r := range raw {
-		if r < '0' || r > '9' {
-			return 0, fmt.Errorf("GIT_CONFIG_COUNT is not a non-negative integer: %s", raw)
-		}
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, fmt.Errorf("GIT_CONFIG_COUNT is not a non-negative integer: %s", raw)
-	}
-	return n, nil
+	return b.String()
 }
 
 // IsIsolated reports whether the current process already lives in a shell

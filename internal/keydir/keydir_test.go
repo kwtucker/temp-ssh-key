@@ -10,7 +10,6 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -332,7 +331,6 @@ func TestUnexpected(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{".hidden", "extra"}
-	sort.Strings(got)
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("Unexpected() = %v, want %v", got, want)
 	}

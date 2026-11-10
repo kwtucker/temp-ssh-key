@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"unicode"
 
 	"golang.org/x/term"
 )
@@ -111,6 +112,20 @@ func validateIdentity(name, email string) error {
 	}
 	if strings.ContainsAny(name, "\r\n") || strings.ContainsAny(email, "\r\n") {
 		return errors.New("name and email must be single lines")
+	}
+	if err := validatePrintableLine("name", name); err != nil {
+		return err
+	}
+	return validatePrintableLine("email", email)
+}
+
+// validatePrintableLine rejects control and format characters that could
+// manipulate a terminal or hide content in a public key line or Git identity.
+func validatePrintableLine(field, value string) error {
+	for _, r := range value {
+		if !unicode.IsPrint(r) {
+			return fmt.Errorf("%s contains a non-printable character (%U)", field, r)
+		}
 	}
 	return nil
 }

@@ -59,14 +59,11 @@ isolated shell.`,
 			if name == "" && !noIsolate {
 				app.note("No --name/--email given and Git config is isolated; set the identity in the repository or restart with them.")
 			}
-			session, err := sessionOptions(app, dir, name, email, !noIsolate)
+			session, err := sessionOptions(dir, name, email, !noIsolate)
 			if err != nil {
 				return err
 			}
-			vars, err := shellenv.Vars(session)
-			if err != nil {
-				return err
-			}
+			vars := shellenv.Vars(session)
 			if err := execShell(app, shellName, vars, sessionSteps(true)); err != nil {
 				return err
 			}

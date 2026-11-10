@@ -18,8 +18,7 @@ import (
 	"github.com/kwtucker/temp-ssh-key/internal/keydir"
 )
 
-func newTestApp(t *testing.T) (*App, *bytes.Buffer, *bytes.Buffer) {
-	t.Helper()
+func newTestApp() (*App, *bytes.Buffer, *bytes.Buffer) {
 	var out, errOut bytes.Buffer
 	app := &App{
 		In:          strings.NewReader(""),
@@ -70,7 +69,7 @@ func TestIsTerminalRejectsDevNull(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
-	app, out, _ := newTestApp(t)
+	app, out, _ := newTestApp()
 	if err := runCLI(t, app, "--version"); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +79,7 @@ func TestVersion(t *testing.T) {
 }
 
 func TestHelpListsCommands(t *testing.T) {
-	app, out, _ := newTestApp(t)
+	app, out, _ := newTestApp()
 	if err := runCLI(t, app, "help"); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +92,7 @@ func TestHelpListsCommands(t *testing.T) {
 
 func TestCreateText(t *testing.T) {
 	line, fingerprint := setupFakeKeygen(t)
-	app, out, errOut := newTestApp(t)
+	app, out, errOut := newTestApp()
 	base := t.TempDir()
 
 	if err := runCLI(t, app, "create", "--allow-unencrypted", "--format", "text", "--base", base); err != nil {
@@ -133,7 +132,7 @@ func TestCreateText(t *testing.T) {
 
 func TestCreateRequiresTTYWithoutAllowUnencrypted(t *testing.T) {
 	setupFakeKeygen(t)
-	app, out, _ := newTestApp(t)
+	app, out, _ := newTestApp()
 	base := t.TempDir()
 
 	err := runCLI(t, app, "create", "--format", "text", "--base", base)
@@ -147,7 +146,7 @@ func TestCreateRequiresTTYWithoutAllowUnencrypted(t *testing.T) {
 
 func TestCreateQRRequiresTTY(t *testing.T) {
 	setupFakeKeygen(t)
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 
 	err := runCLI(t, app, "create", "--allow-unencrypted", "--format", "qr", "--base", t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "interactive terminal") {
@@ -159,7 +158,7 @@ func TestCreateQRRequiresTTY(t *testing.T) {
 // stderr and write the assignments to the captured stdout.
 func TestCreateQRWithCapturedStdout(t *testing.T) {
 	setupFakeKeygen(t)
-	app, out, errOut := newTestApp(t)
+	app, out, errOut := newTestApp()
 	app.StdinIsTTY = true
 	app.StderrIsTTY = true
 
@@ -178,7 +177,7 @@ func TestCreateQRWithCapturedStdout(t *testing.T) {
 // The passphrase prompt needs stdin only; stdout may be captured by eval.
 func TestCreatePassphraseWithCapturedStdout(t *testing.T) {
 	setupFakeKeygen(t)
-	app, out, _ := newTestApp(t)
+	app, out, _ := newTestApp()
 	app.StdinIsTTY = true
 
 	if err := runCLI(t, app, "create", "--format", "text", "--base", t.TempDir()); err != nil {
@@ -191,7 +190,7 @@ func TestCreatePassphraseWithCapturedStdout(t *testing.T) {
 
 func TestShowQRUsesStdoutTTY(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, out, _ := newTestApp(t)
+	app, out, _ := newTestApp()
 	app.StdoutIsTTY = true
 
 	if err := runCLI(t, app, "show", dir, "--format", "qr"); err != nil {
@@ -203,8 +202,8 @@ func TestShowQRUsesStdoutTTY(t *testing.T) {
 }
 
 func TestCreatePNG(t *testing.T) {
-	line, _ := setupFakeKeygen(t)
-	app, out, errOut := newTestApp(t)
+	setupFakeKeygen(t)
+	app, out, errOut := newTestApp()
 
 	if err := runCLI(t, app, "create", "--allow-unencrypted", "--format", "png", "--base", t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -226,14 +225,11 @@ func TestCreatePNG(t *testing.T) {
 	if !strings.Contains(errOut.String(), path) {
 		t.Fatalf("stderr does not mention the PNG path:\n%s", errOut.String())
 	}
-	if !strings.Contains(line, "ssh-ed25519") {
-		t.Fatal("test key is not an SSH key")
-	}
 }
 
 func TestCreateRejectsMultilineComment(t *testing.T) {
 	setupFakeKeygen(t)
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 
 	err := runCLI(t, app, "create", "--allow-unencrypted", "--base", t.TempDir(), "--comment", "two\nlines")
 	if err == nil || !strings.Contains(err.Error(), "single line") {
@@ -241,9 +237,29 @@ func TestCreateRejectsMultilineComment(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsControlCharacterComment(t *testing.T) {
+	setupFakeKeygen(t)
+	app, _, _ := newTestApp()
+
+	err := runCLI(t, app, "create", "--allow-unencrypted", "--base", t.TempDir(), "--comment", "bad\x1b[31mcomment")
+	if err == nil || !strings.Contains(err.Error(), "non-printable") {
+		t.Fatalf("error = %v, want a non-printable error", err)
+	}
+}
+
+func TestCreateRejectsOverlongComment(t *testing.T) {
+	setupFakeKeygen(t)
+	app, _, _ := newTestApp()
+
+	err := runCLI(t, app, "create", "--allow-unencrypted", "--base", t.TempDir(), "--comment", strings.Repeat("a", 257))
+	if err == nil || !strings.Contains(err.Error(), "too long") {
+		t.Fatalf("error = %v, want a too-long error", err)
+	}
+}
+
 func TestShowText(t *testing.T) {
 	dir, line, fingerprint := makeKeyDir(t)
-	app, out, errOut := newTestApp(t)
+	app, out, errOut := newTestApp()
 
 	if err := runCLI(t, app, "show", dir, "--format", "text"); err != nil {
 		t.Fatal(err)
@@ -258,7 +274,7 @@ func TestShowText(t *testing.T) {
 
 func TestShowQRRequiresTTY(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 
 	if err := runCLI(t, app, "show", dir, "--format", "qr"); err == nil {
 		t.Fatal("show --format qr succeeded without a terminal")
@@ -271,7 +287,7 @@ func TestShowRejectsMismatchedKey(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, keydir.PublicKeyName), []byte(otherLine+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	app, out, _ := newTestApp(t)
+	app, out, _ := newTestApp()
 
 	err := runCLI(t, app, "show", dir, "--format", "text")
 	if err == nil || !strings.Contains(err.Error(), "does not match") {
@@ -287,7 +303,7 @@ func TestShowRejectsMissingPrivateKey(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, keydir.PrivateKeyName)); err != nil {
 		t.Fatal(err)
 	}
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 
 	if err := runCLI(t, app, "show", dir, "--format", "text"); err == nil {
 		t.Fatal("show succeeded without a private key")
@@ -296,7 +312,7 @@ func TestShowRejectsMissingPrivateKey(t *testing.T) {
 
 func TestShowPNGRepeatable(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, out, _ := newTestApp(t)
+	app, out, _ := newTestApp()
 
 	for run := 1; run <= 2; run++ {
 		out.Reset()
@@ -315,13 +331,7 @@ func TestShowPNGRepeatable(t *testing.T) {
 
 func TestEnv(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, out, _ := newTestApp(t)
-	app.Getenv = func(key string) string {
-		if key == "GIT_CONFIG_COUNT" {
-			return "2"
-		}
-		return ""
-	}
+	app, out, _ := newTestApp()
 
 	if err := runCLI(t, app, "env", dir, "--name", "Kevin Tucker", "--email", "kevin@example.com"); err != nil {
 		t.Fatal(err)
@@ -332,12 +342,17 @@ func TestEnv(t *testing.T) {
 		"export KEY='" + filepath.Join(dir, keydir.PrivateKeyName) + "'",
 		"export KEY_FINGERPRINT='",
 		"export GIT_TERMINAL_PROMPT='0'",
-		"export GIT_CONFIG_KEY_2='core.sshCommand'",
-		"export GIT_CONFIG_COUNT='3'",
+		"export GIT_CONFIG_KEY_0='core.sshCommand'",
+		"export GIT_CONFIG_COUNT='1'",
 		"export GIT_AUTHOR_NAME='Kevin Tucker'",
 		"export GIT_AUTHOR_EMAIL='kevin@example.com'",
 		"export GIT_CONFIG_GLOBAL='/dev/null'",
 		"export GIT_CONFIG_SYSTEM='/dev/null'",
+		"unset SSH_AUTH_SOCK",
+		"unset GIT_ASKPASS",
+		"unset GIT_CONFIG_PARAMETERS",
+		"unset GIT_CONFIG_COUNT",
+		"unset GIT_DIR",
 	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output does not contain %q:\n%s", want, output)
@@ -355,26 +370,21 @@ func TestEnv(t *testing.T) {
 
 func TestEnvValidation(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 
 	if err := runCLI(t, app, "env", dir, "--name", "Only Name"); err == nil {
 		t.Fatal("env accepted --name without --email")
 	}
 
-	app.Getenv = func(key string) string {
-		if key == "GIT_CONFIG_COUNT" {
-			return "nope"
-		}
-		return ""
-	}
-	if err := runCLI(t, app, "env", dir); err == nil {
-		t.Fatal("env accepted a non-numeric GIT_CONFIG_COUNT")
+	if err := runCLI(t, app, "env", dir, "--name", "bad\x1bname", "--email", "kevin@example.com"); err == nil ||
+		!strings.Contains(err.Error(), "non-printable") {
+		t.Fatalf("error = %v, want a non-printable identity error", err)
 	}
 }
 
 func TestCleanupPrint(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, out, errOut := newTestApp(t)
+	app, out, errOut := newTestApp()
 
 	if err := runCLI(t, app, "cleanup", dir); err != nil {
 		t.Fatal(err)
@@ -396,7 +406,7 @@ func TestCleanupPrint(t *testing.T) {
 
 func TestCleanupDefaultsToKeyDirEnv(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, out, _ := newTestApp(t)
+	app, out, _ := newTestApp()
 	app.Getenv = func(key string) string {
 		if key == "KEY_DIR" {
 			return dir
@@ -413,7 +423,7 @@ func TestCleanupDefaultsToKeyDirEnv(t *testing.T) {
 }
 
 func TestCleanupWithoutKeyDir(t *testing.T) {
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	err := runCLI(t, app, "cleanup")
 	if err == nil || !strings.Contains(err.Error(), "KEY_DIR is not set") {
 		t.Fatalf("error = %v, want a missing KEY_DIR error", err)
@@ -422,7 +432,7 @@ func TestCleanupWithoutKeyDir(t *testing.T) {
 
 func TestCleanupRemove(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, _, errOut := newTestApp(t)
+	app, _, errOut := newTestApp()
 	setInteractive(app)
 	app.In = strings.NewReader("y\ny\n")
 
@@ -439,7 +449,7 @@ func TestCleanupRemove(t *testing.T) {
 
 func TestCleanupRemoveDeclined(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	setInteractive(app)
 	app.In = strings.NewReader("n\nn\n")
 
@@ -455,7 +465,7 @@ func TestCleanupRemoveDeclined(t *testing.T) {
 
 func TestCleanupRemoveRequiresTTY(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 
 	if err := runCLI(t, app, "cleanup", dir, "--remove"); err == nil {
 		t.Fatal("cleanup --remove succeeded without a terminal")
@@ -464,7 +474,7 @@ func TestCleanupRemoveRequiresTTY(t *testing.T) {
 
 func TestCleanupRemoveRequiresStderrTTY(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	app.StdinIsTTY = true
 	app.StderrIsTTY = false
 
@@ -478,7 +488,7 @@ func TestCleanupRemoveRequiresStderrTTY(t *testing.T) {
 
 func TestCleanupRemoveWithCapturedStdout(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, out, _ := newTestApp(t)
+	app, out, _ := newTestApp()
 	app.StdinIsTTY = true
 	app.StderrIsTTY = true
 	app.StdoutIsTTY = false
@@ -497,7 +507,7 @@ func TestCleanupRemoveWithCapturedStdout(t *testing.T) {
 
 func TestCleanupRemovePromptWriteError(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	app.StdinIsTTY = true
 	app.StderrIsTTY = true
 	app.In = strings.NewReader("y\ny\n")
@@ -514,7 +524,7 @@ func TestCleanupRemovePromptWriteError(t *testing.T) {
 
 func TestCleanupPrintWriteError(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	app.Out = errorWriter{err: errors.New("stdout closed")}
 
 	err := runCLI(t, app, "cleanup", dir)
@@ -529,7 +539,7 @@ func TestCleanupUnexpectedFile(t *testing.T) {
 	if err := os.WriteFile(extra, []byte("keep me"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	setInteractive(app)
 	app.In = strings.NewReader("y\ny\ny\n")
 
@@ -544,8 +554,18 @@ func TestCleanupUnexpectedFile(t *testing.T) {
 
 func TestShell(t *testing.T) {
 	dir, _, fingerprint := makeKeyDir(t)
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	setInteractive(app)
+	app.Environ = func() []string {
+		return []string{
+			"PATH=" + os.Getenv("PATH"),
+			"KEEP_ME=yes",
+			"SSH_AUTH_SOCK=/tmp/agent.sock",
+			"GIT_DIR=/tmp/hostile/.git",
+			"GIT_ASKPASS=/tmp/askpass",
+			"GIT_CONFIG_PARAMETERS='core.sshCommand=evil'",
+		}
+	}
 
 	var gotPath string
 	var gotArgv, gotEnv []string
@@ -596,10 +616,18 @@ func TestShell(t *testing.T) {
 	if env["GIT_CONFIG_GLOBAL"] != "/dev/null" || env["GIT_CONFIG_SYSTEM"] != "/dev/null" {
 		t.Errorf("Git config was not isolated: GLOBAL=%q SYSTEM=%q", env["GIT_CONFIG_GLOBAL"], env["GIT_CONFIG_SYSTEM"])
 	}
+	for _, name := range []string{"SSH_AUTH_SOCK", "GIT_DIR", "GIT_ASKPASS", "GIT_CONFIG_PARAMETERS"} {
+		if value, ok := env[name]; ok {
+			t.Errorf("inherited %s was not removed: %q", name, value)
+		}
+	}
+	if env["KEEP_ME"] != "yes" {
+		t.Errorf("unrelated environment was removed: KEEP_ME=%q", env["KEEP_ME"])
+	}
 }
 
 func TestShellAlreadyIsolated(t *testing.T) {
-	app, _, errOut := newTestApp(t)
+	app, _, errOut := newTestApp()
 	app.Getenv = func(key string) string {
 		if key == "TEMP_SSH_KEY_ISOLATED" {
 			return "1"
@@ -624,7 +652,7 @@ func TestShellAlreadyIsolated(t *testing.T) {
 }
 
 func TestShellWithoutKey(t *testing.T) {
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	setInteractive(app)
 	app.LookPath = func(name string) (string, error) {
 		if name == "zsh" {
@@ -655,7 +683,7 @@ func TestShellWithoutKey(t *testing.T) {
 
 func TestStart(t *testing.T) {
 	line, _ := setupFakeKeygen(t)
-	app, out, errOut := newTestApp(t)
+	app, out, errOut := newTestApp()
 	setInteractive(app)
 	var gotEnv []string
 	app.Exec = func(_ string, _ []string, env []string) error {
@@ -702,7 +730,7 @@ func TestStart(t *testing.T) {
 
 func TestStartNoIsolateConfig(t *testing.T) {
 	setupFakeKeygen(t)
-	app, _, errOut := newTestApp(t)
+	app, _, errOut := newTestApp()
 	setInteractive(app)
 	var gotEnv []string
 	app.Exec = func(_ string, _ []string, env []string) error {
@@ -725,7 +753,7 @@ func TestStartNoIsolateConfig(t *testing.T) {
 
 func TestStartWarnsWhenIdentityMissing(t *testing.T) {
 	setupFakeKeygen(t)
-	app, _, errOut := newTestApp(t)
+	app, _, errOut := newTestApp()
 	setInteractive(app)
 	app.Exec = func(string, []string, []string) error { return nil }
 
@@ -739,7 +767,7 @@ func TestStartWarnsWhenIdentityMissing(t *testing.T) {
 }
 
 func TestStartRejectsHalfIdentity(t *testing.T) {
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	setInteractive(app)
 
 	err := runCLI(t, app, "start", "--name", "Kevin Tucker")
@@ -749,7 +777,7 @@ func TestStartRejectsHalfIdentity(t *testing.T) {
 }
 
 func TestStartIsolated(t *testing.T) {
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	app.Getenv = func(key string) string {
 		if key == "TEMP_SSH_KEY_ISOLATED" {
 			return "1"
@@ -765,7 +793,7 @@ func TestStartIsolated(t *testing.T) {
 }
 
 func TestStartRequiresTTY(t *testing.T) {
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 
 	if err := runCLI(t, app, "start"); err == nil {
 		t.Fatal("start succeeded without a terminal")
@@ -774,19 +802,16 @@ func TestStartRequiresTTY(t *testing.T) {
 
 func TestStartCleansUpWhenShellFails(t *testing.T) {
 	setupFakeKeygen(t)
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	setInteractive(app)
 	base := t.TempDir()
-	app.LookPath = func(name string) (string, error) {
-		if name == "zsh" {
-			return "", errors.New("zsh is not installed")
-		}
-		return exec.LookPath(name)
+	app.Exec = func(string, []string, []string) error {
+		return errors.New("shell failed to start")
 	}
 
-	err := runCLI(t, app, "start", "--allow-unencrypted", "--format", "text", "--base", base)
+	err := runCLI(t, app, "start", "--allow-unencrypted", "--format", "text", "--base", base, "--shell", "bash")
 	if err == nil {
-		t.Fatal("start succeeded without a shell")
+		t.Fatal("start succeeded even though the shell failed")
 	}
 	entries, readErr := os.ReadDir(base)
 	if readErr != nil {
@@ -801,33 +826,8 @@ func TestStartCleansUpWhenShellFails(t *testing.T) {
 	}
 }
 
-func TestStartCleansUpWhenSessionSetupFails(t *testing.T) {
-	setupFakeKeygen(t)
-	app, _, _ := newTestApp(t)
-	setInteractive(app)
-	base := t.TempDir()
-	app.Getenv = func(key string) string {
-		if key == "GIT_CONFIG_COUNT" {
-			return "not-a-number"
-		}
-		return ""
-	}
-
-	err := runCLI(t, app, "start", "--allow-unencrypted", "--format", "text", "--base", base, "--shell", "bash")
-	if err == nil {
-		t.Fatal("start succeeded with an invalid GIT_CONFIG_COUNT")
-	}
-	entries, readErr := os.ReadDir(base)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("start left key material behind after session setup failed: %v", entries)
-	}
-}
-
 func TestUnknownCommand(t *testing.T) {
-	app, _, _ := newTestApp(t)
+	app, _, _ := newTestApp()
 	if err := runCLI(t, app, "nope"); err == nil {
 		t.Fatal("unknown command succeeded")
 	}

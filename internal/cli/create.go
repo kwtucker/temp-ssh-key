@@ -58,16 +58,28 @@ implicit.`,
 	return cmd
 }
 
+// maxCommentBytes bounds --comment so one flag cannot create an oversized or
+// misleading public-key line.
+const maxCommentBytes = 256
+
 func runCreate(app *App, opts createOptions) (string, string, error) {
 	if err := validateFormat(opts.format); err != nil {
 		return "", "", err
 	}
-	if strings.TrimSpace(opts.comment) == "" {
+	comment := strings.TrimSpace(opts.comment)
+	if comment == "" {
 		return "", "", errors.New("comment must not be empty")
 	}
-	if strings.ContainsAny(opts.comment, "\r\n") {
+	if len(comment) > maxCommentBytes {
+		return "", "", fmt.Errorf("comment is too long (%d bytes, max %d)", len(comment), maxCommentBytes)
+	}
+	if strings.ContainsAny(comment, "\r\n") {
 		return "", "", errors.New("comment must be a single line")
 	}
+	if err := validatePrintableLine("comment", comment); err != nil {
+		return "", "", err
+	}
+	opts.comment = comment
 	if opts.format == "qr" {
 		// The QR is written to stderr, so stdout is free to be captured by
 		// command substitution.

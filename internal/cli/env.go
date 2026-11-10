@@ -38,21 +38,17 @@ This command contacts no remote and writes no files.`,
 }
 
 func runEnv(app *App, dir, name, email string, noIsolate bool) error {
-	opts, err := sessionOptions(app, dir, name, email, !noIsolate)
+	opts, err := sessionOptions(dir, name, email, !noIsolate)
 	if err != nil {
 		return err
 	}
-	output, err := shellenv.Exports(opts)
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprint(app.Out, output)
+	_, err = fmt.Fprint(app.Out, shellenv.Exports(opts))
 	return err
 }
 
 // sessionOptions validates an existing key directory and returns the exports
 // for a Git session that uses it.
-func sessionOptions(app *App, dir, name, email string, isolate bool) (shellenv.Options, error) {
+func sessionOptions(dir, name, email string, isolate bool) (shellenv.Options, error) {
 	dir, pub, err := keydir.Verify(dir)
 	if err != nil {
 		return shellenv.Options{}, err
@@ -68,6 +64,5 @@ func sessionOptions(app *App, dir, name, email string, isolate bool) (shellenv.O
 		Name:          name,
 		Email:         email,
 		IsolateConfig: isolate,
-		ConfigCount:   app.Getenv("GIT_CONFIG_COUNT"),
 	}, nil
 }

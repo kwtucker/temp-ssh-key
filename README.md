@@ -23,7 +23,7 @@ not revocation.**
 With mise:
 
 ```sh
-mise use -g github:kwtucker/temp-ssh-key@0.2.2
+mise use -g github:kwtucker/temp-ssh-key@0.2.3
 ```
 
 With Go:
@@ -46,9 +46,9 @@ workflow. Verify the checksum before running a downloaded binary:
 
 ```sh
 # Linux example; adjust the file name for your OS and architecture.
-curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.2.2/temp-ssh-key_0.2.2_linux_amd64.tar.gz
-curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.2.2/checksums.txt
-grep "temp-ssh-key_0.2.2_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -
+curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.2.3/temp-ssh-key_0.2.3_linux_amd64.tar.gz
+curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.2.3/checksums.txt
+grep "temp-ssh-key_0.2.3_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -
 ```
 
 On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`.
@@ -58,7 +58,7 @@ artifact attestations. Auditors with an authenticated GitHub CLI can check the
 build provenance:
 
 ```sh
-gh attestation verify temp-ssh-key_0.2.2_linux_amd64.tar.gz \
+gh attestation verify temp-ssh-key_0.2.3_linux_amd64.tar.gz \
   --repo kwtucker/temp-ssh-key
 ```
 
@@ -141,6 +141,10 @@ Creation prompts for a passphrase through `ssh-keygen`. The passphrase is never
 passed as an argument, environment variable, or file. `--allow-unencrypted`
 skips the passphrase and is never implicit.
 
+The public key comment is trimmed, limited to 256 bytes, and must be printable
+single-line text. That keeps it from injecting terminal control sequences or
+extra `authorized_keys` lines.
+
 `--format png` writes `public-key.png` inside the key directory and prints its
 path. Repeating the command overwrites the file atomically, so a crashed or
 interrupted write cannot leave a partial image behind. QR output requires a
@@ -174,6 +178,9 @@ the isolated shell has no identity unless the repository sets one. Use
 `--no-isolate-config` to keep your normal Git config. Inside an isolated shell
 `start` refuses to nest and points you at `create`.
 
+Before starting the shell, both apply the same environment reset as `env`, so
+inherited credentials and repository overrides do not carry into the session.
+
 Both `start` and `shell` print a short next-steps banner, including the
 revoke-before-cleanup reminder.
 
@@ -189,6 +196,11 @@ and committer identity. By default it also sets `GIT_CONFIG_GLOBAL=/dev/null`
 and `GIT_CONFIG_SYSTEM=/dev/null` so global rewrite rules, signing
 configuration, and identity do not leak into the operation. Use
 `--no-isolate-config` to keep your normal Git config.
+
+The output also unsets inherited credential and repository overrides such as
+`SSH_AUTH_SOCK`, `GIT_ASKPASS`, and `GIT_DIR`. It resets `GIT_CONFIG_COUNT` to 1
+before exporting its own `core.sshCommand` entry, so inherited numbered config
+entries are ignored.
 
 `shell KEY_DIR` exports the same session environment directly into the new
 shell, so `env` is only needed in the strict flow.
@@ -224,6 +236,8 @@ a keylogger, or a malicious `ssh-keygen` on `PATH`.
 - Transfer only the public key. Never copy the private key.
 - Revoke remote authorization before deleting local files.
 - Treat the isolated shell as a convenience, not as a security boundary.
+- The tool removes common credential and repository overrides from the session
+  environment, but a compromised OS can still observe or alter the process.
 
 ## Non-goals
 

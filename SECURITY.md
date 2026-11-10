@@ -32,6 +32,10 @@ In scope:
 - Accidental disclosure of private key material through stdout, stderr, or
   process arguments.
 - Unsafe shell quoting in the `eval`-able exports.
+- Terminal-control or multi-line injection through the public key comment or
+  Git identity.
+- Credential or repository redirection through inherited environment variables
+  in an isolated session.
 - Cleanup deleting or inspecting paths it does not own, including symlinks,
   unexpected files, and directories outside the managed layout.
 - Weak file or directory permissions created or accepted by the tool.
