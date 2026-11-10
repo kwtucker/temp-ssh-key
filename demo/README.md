@@ -1,8 +1,7 @@
 # Demo
 
-`demo.gif` and `demo.mp4` are generated from `demo.tape` with
-[VHS](https://github.com/charmbracelet/vhs). The README embeds the MP4 so
-visitors get pause and scrub controls; the GIF is useful where video is not.
+`demo.gif` is generated from `demo.tape` with
+[VHS](https://github.com/charmbracelet/vhs).
 
 The recording uses a throwaway key with `--allow-unencrypted`, never authorizes
 it, and cleans it up. The key directory is under `/tmp`. If the recording is
@@ -30,15 +29,5 @@ From the repository root:
 make demo
 ```
 
-This builds `bin/temp-ssh-key` and writes `demo/demo.gif` and `demo/demo.mp4`.
-VHS downloads a headless browser on its first run.
-
-The README video points at a GitHub user-attachment. After changing the demo,
-upload the new MP4 as a GitHub attachment and reference it in an issue, pull
-request, or comment so it is publicly readable; a README reference alone is not
-enough. Then replace the `<video src="...">` URL in the root `README.md`.
-
-The current attachment is referenced by
-[issue #1](https://github.com/kwtucker/temp-ssh-key/issues/1). Keep that issue,
-or replace it with another public reference, or the video will return 404 for
-logged-out visitors.
+This builds `bin/temp-ssh-key` and writes `demo/demo.gif`. VHS downloads a
+headless browser on its first run.

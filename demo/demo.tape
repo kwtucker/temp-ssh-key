@@ -1,5 +1,4 @@
 Output demo.gif
-Output demo.mp4
 
 Require temp-ssh-key
 Require ssh-keygen
@@ -9,8 +8,9 @@ Set FontSize 14
 Set Width 1000
 Set Height 800
 Set Padding 20
-Set Theme "Dracula"
-Set TypingSpeed 30ms
+Set Theme "Catppuccin Frappe"
+Set WindowBar Colorful
+Set TypingSpeed 70ms
 Set CursorBlink false
 
 Hide
@@ -30,11 +30,13 @@ Sleep 300ms
 
 Type "temp-ssh-key start --format qr --allow-unencrypted --shell bash --name Demo --email demo@example.com"
 Enter
-Sleep 3s
+Enter
+Sleep 8s
 
 Type "temp-ssh-key cleanup --dry-run"
 Enter
-Sleep 1s
+Enter
+Sleep 8s
 
 Type "temp-ssh-key cleanup"
 Enter
@@ -44,11 +46,12 @@ Enter
 Sleep 300ms
 Type "y"
 Enter
-Sleep 1s
+Enter
+Sleep 4s
 
 Type "unset KEY_DIR KEY KEY_FINGERPRINT"
 Enter
 Sleep 300ms
 Type "exit"
 Enter
-Sleep 1s
+Sleep 8s
