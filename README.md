@@ -20,10 +20,10 @@ not revocation.**
 
 ## Demo
 
-![temp-ssh-key demo](demo/demo.gif)
+<video src="https://github.com/user-attachments/assets/e7106f3a-b843-4940-9343-51c75c1e810e" controls autoplay loop muted playsinline></video>
 
 The recording uses a throwaway unencrypted key and never authorizes it. See
-[`demo/README.md`](demo/README.md) to regenerate the GIF with VHS.
+[`demo/README.md`](demo/README.md) to regenerate the demo with VHS.
 
 ## Install
 

@@ -1,4 +1,5 @@
 Output demo.gif
+Output demo.mp4
 
 Require temp-ssh-key
 Require ssh-keygen
