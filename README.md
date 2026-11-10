@@ -89,7 +89,7 @@ git push git@github.com:OWNER/REPO.git HEAD:main
 After revoking the key on the trusted device:
 
 ```sh
-temp-ssh-key cleanup --remove
+temp-ssh-key cleanup
 exit
 ```
 
@@ -101,7 +101,7 @@ temp-ssh-key shell
 eval "$(temp-ssh-key create --format qr)"
 eval "$(temp-ssh-key env "$KEY_DIR" --name "Your Name" --email "you@example.com")"
 # ... git work ...
-temp-ssh-key cleanup --remove
+temp-ssh-key cleanup
 exit
 ```
 
@@ -114,7 +114,7 @@ exit
 | `start` | Create a key, export the session environment, and enter an isolated shell. |
 | `show KEY_DIR` | Verify a key directory and display its public key. |
 | `env KEY_DIR` | Print eval-safe Git and key exports. |
-| `cleanup [KEY_DIR]` | Print or remove this tool's local files (defaults to `$KEY_DIR`). |
+| `cleanup [KEY_DIR]` | Remove this tool's local files (defaults to `$KEY_DIR`). |
 | `--version` | Print the version. |
 
 Run `temp-ssh-key <command> --help` for flags.
@@ -208,9 +208,10 @@ shell, so `env` is only needed in the strict flow.
 ### `cleanup`
 
 ```sh
-temp-ssh-key cleanup            # print the rm/rmdir commands for $KEY_DIR
-temp-ssh-key cleanup --remove   # prompt per file, then rmdir
-temp-ssh-key cleanup /path/to/key --remove
+temp-ssh-key cleanup              # prompt per file, then rmdir $KEY_DIR
+temp-ssh-key cleanup --dry-run    # print the rm/rmdir commands instead
+temp-ssh-key cleanup --yes        # skip the per-file prompts
+temp-ssh-key cleanup /path/to/key
 ```
 
 `KEY_DIR` defaults to `$KEY_DIR`, which `start`, `shell KEY_DIR`, and `env`
@@ -220,9 +221,11 @@ Cleanup refuses directories that are symlinks, not owned by you, not mode 700,
 or not named `temp-ssh-key.*`. It also refuses to touch a directory containing
 anything other than `id_ed25519`, `id_ed25519.pub`, and `public-key.png`.
 
-`--remove` requires an interactive terminal on both stdin and stderr. Prompts
+By default it requires an interactive terminal on both stdin and stderr. Prompts
 are written to stderr so they do not mix with command output, and stdout may be
-captured. A failed prompt write aborts before deleting anything.
+captured. A failed prompt write aborts before deleting anything. `--yes` skips
+the prompts and allows non-interactive use; `--dry-run` prints the commands and
+deletes nothing. The two flags are mutually exclusive.
 
 ## Security model
 

@@ -104,7 +104,7 @@ func sessionSteps(hasKey bool) []string {
 			"Authorize the public key on your trusted device (scan the QR code or copy the text).",
 			"Run your git commands here; the key and GIT_SSH_COMMAND are already exported.",
 			"Revoke the key on your trusted device; deleting local files is not revocation.",
-			"temp-ssh-key cleanup --remove",
+			"temp-ssh-key cleanup",
 			"exit",
 		}
 	}
@@ -114,7 +114,7 @@ func sessionSteps(hasKey bool) []string {
 		"Authorize the public key on your trusted device.",
 		"Run your git commands here.",
 		"Revoke the key on your trusted device; deleting local files is not revocation.",
-		"temp-ssh-key cleanup --remove",
+		"temp-ssh-key cleanup",
 		"exit",
 	}
 }

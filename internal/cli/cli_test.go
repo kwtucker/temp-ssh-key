@@ -382,11 +382,11 @@ func TestEnvValidation(t *testing.T) {
 	}
 }
 
-func TestCleanupPrint(t *testing.T) {
+func TestCleanupDryRun(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, out, errOut := newTestApp()
 
-	if err := runCLI(t, app, "cleanup", dir); err != nil {
+	if err := runCLI(t, app, "cleanup", dir, "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	output := out.String()
@@ -400,7 +400,7 @@ func TestCleanupPrint(t *testing.T) {
 		t.Errorf("stderr does not warn about revocation:\n%s", errOut.String())
 	}
 	if _, err := os.Stat(dir); err != nil {
-		t.Fatalf("cleanup without --remove deleted the directory: %v", err)
+		t.Fatalf("cleanup --dry-run deleted the directory: %v", err)
 	}
 }
 
@@ -414,7 +414,7 @@ func TestCleanupDefaultsToKeyDirEnv(t *testing.T) {
 		return ""
 	}
 
-	if err := runCLI(t, app, "cleanup"); err != nil {
+	if err := runCLI(t, app, "cleanup", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "rmdir '"+dir+"'") {
@@ -430,13 +430,13 @@ func TestCleanupWithoutKeyDir(t *testing.T) {
 	}
 }
 
-func TestCleanupRemove(t *testing.T) {
+func TestCleanup(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, _, errOut := newTestApp()
 	setInteractive(app)
 	app.In = strings.NewReader("y\ny\n")
 
-	if err := runCLI(t, app, "cleanup", dir, "--remove"); err != nil {
+	if err := runCLI(t, app, "cleanup", dir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(dir); !errors.Is(err, os.ErrNotExist) {
@@ -447,14 +447,14 @@ func TestCleanupRemove(t *testing.T) {
 	}
 }
 
-func TestCleanupRemoveDeclined(t *testing.T) {
+func TestCleanupDeclined(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, _, _ := newTestApp()
 	setInteractive(app)
 	app.In = strings.NewReader("n\nn\n")
 
-	if err := runCLI(t, app, "cleanup", dir, "--remove"); err == nil {
-		t.Fatal("cleanup --remove succeeded even though every prompt was declined")
+	if err := runCLI(t, app, "cleanup", dir); err == nil {
+		t.Fatal("cleanup succeeded even though every prompt was declined")
 	}
 	for _, name := range []string{keydir.PrivateKeyName, keydir.PublicKeyName} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
@@ -463,30 +463,33 @@ func TestCleanupRemoveDeclined(t *testing.T) {
 	}
 }
 
-func TestCleanupRemoveRequiresTTY(t *testing.T) {
+func TestCleanupRequiresTTY(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, _, _ := newTestApp()
 
-	if err := runCLI(t, app, "cleanup", dir, "--remove"); err == nil {
-		t.Fatal("cleanup --remove succeeded without a terminal")
+	if err := runCLI(t, app, "cleanup", dir); err == nil {
+		t.Fatal("cleanup succeeded without a terminal")
+	}
+	if _, err := os.Stat(filepath.Join(dir, keydir.PrivateKeyName)); err != nil {
+		t.Fatalf("cleanup removed files without a terminal: %v", err)
 	}
 }
 
-func TestCleanupRemoveRequiresStderrTTY(t *testing.T) {
+func TestCleanupRequiresStderrTTY(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, _, _ := newTestApp()
 	app.StdinIsTTY = true
 	app.StderrIsTTY = false
 
-	if err := runCLI(t, app, "cleanup", dir, "--remove"); err == nil {
-		t.Fatal("cleanup --remove succeeded without a stderr terminal")
+	if err := runCLI(t, app, "cleanup", dir); err == nil {
+		t.Fatal("cleanup succeeded without a stderr terminal")
 	}
 	if _, err := os.Stat(filepath.Join(dir, keydir.PrivateKeyName)); err != nil {
 		t.Fatalf("cleanup removed files without an interactive stderr: %v", err)
 	}
 }
 
-func TestCleanupRemoveWithCapturedStdout(t *testing.T) {
+func TestCleanupWithCapturedStdout(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, out, _ := newTestApp()
 	app.StdinIsTTY = true
@@ -494,7 +497,7 @@ func TestCleanupRemoveWithCapturedStdout(t *testing.T) {
 	app.StdoutIsTTY = false
 	app.In = strings.NewReader("y\ny\n")
 
-	if err := runCLI(t, app, "cleanup", dir, "--remove"); err != nil {
+	if err := runCLI(t, app, "cleanup", dir); err != nil {
 		t.Fatal(err)
 	}
 	if out.Len() != 0 {
@@ -505,7 +508,7 @@ func TestCleanupRemoveWithCapturedStdout(t *testing.T) {
 	}
 }
 
-func TestCleanupRemovePromptWriteError(t *testing.T) {
+func TestCleanupPromptWriteError(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, _, _ := newTestApp()
 	app.StdinIsTTY = true
@@ -513,7 +516,7 @@ func TestCleanupRemovePromptWriteError(t *testing.T) {
 	app.In = strings.NewReader("y\ny\n")
 	app.Err = errorWriter{err: errors.New("stderr closed")}
 
-	err := runCLI(t, app, "cleanup", dir, "--remove")
+	err := runCLI(t, app, "cleanup", dir)
 	if err == nil || !strings.Contains(err.Error(), "cannot write prompt") {
 		t.Fatalf("error = %v, want a prompt-write error", err)
 	}
@@ -522,14 +525,45 @@ func TestCleanupRemovePromptWriteError(t *testing.T) {
 	}
 }
 
-func TestCleanupPrintWriteError(t *testing.T) {
+func TestCleanupDryRunWriteError(t *testing.T) {
 	dir, _, _ := makeKeyDir(t)
 	app, _, _ := newTestApp()
 	app.Out = errorWriter{err: errors.New("stdout closed")}
 
-	err := runCLI(t, app, "cleanup", dir)
+	err := runCLI(t, app, "cleanup", dir, "--dry-run")
 	if err == nil || !strings.Contains(err.Error(), "cannot write cleanup commands") {
 		t.Fatalf("error = %v, want a cleanup-write error", err)
+	}
+}
+
+func TestCleanupYes(t *testing.T) {
+	dir, _, _ := makeKeyDir(t)
+	app, out, errOut := newTestApp()
+
+	if err := runCLI(t, app, "cleanup", dir, "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("key directory still exists: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if strings.Contains(errOut.String(), "[y/N]") {
+		t.Errorf("--yes still prompted:\n%s", errOut.String())
+	}
+}
+
+func TestCleanupDryRunAndYesConflict(t *testing.T) {
+	dir, _, _ := makeKeyDir(t)
+	app, _, _ := newTestApp()
+
+	err := runCLI(t, app, "cleanup", dir, "--dry-run", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("error = %v, want a mutual-exclusion error", err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("conflicting flags deleted the directory: %v", err)
 	}
 }
 
@@ -540,10 +574,8 @@ func TestCleanupUnexpectedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	app, _, _ := newTestApp()
-	setInteractive(app)
-	app.In = strings.NewReader("y\ny\ny\n")
 
-	err := runCLI(t, app, "cleanup", dir, "--remove")
+	err := runCLI(t, app, "cleanup", dir, "--yes")
 	if err == nil || !strings.Contains(err.Error(), "unexpected files") {
 		t.Fatalf("error = %v, want an unexpected-files error", err)
 	}
@@ -701,7 +733,7 @@ func TestStart(t *testing.T) {
 	if !strings.Contains(errOut.String(), line) {
 		t.Fatalf("stderr does not contain the public key:\n%s", errOut.String())
 	}
-	for _, want := range []string{"Next steps:", "cleanup --remove", "Revoke the key"} {
+	for _, want := range []string{"Next steps:", "temp-ssh-key cleanup", "Revoke the key"} {
 		if !strings.Contains(errOut.String(), want) {
 			t.Errorf("stderr does not contain %q:\n%s", want, errOut.String())
 		}
