@@ -34,6 +34,11 @@ This builds `bin/temp-ssh-key` and writes `demo/demo.gif` and `demo/demo.mp4`.
 VHS downloads a headless browser on its first run.
 
 The README video points at a GitHub user-attachment. After changing the demo,
-upload the new MP4 as a GitHub attachment (for example, drag it into an issue
-or pull request comment) and replace the `<video src="...">` URL in the root
-`README.md`.
+upload the new MP4 as a GitHub attachment and reference it in an issue, pull
+request, or comment so it is publicly readable; a README reference alone is not
+enough. Then replace the `<video src="...">` URL in the root `README.md`.
+
+The current attachment is referenced by
+[issue #1](https://github.com/kwtucker/temp-ssh-key/issues/1). Keep that issue,
+or replace it with another public reference, or the video will return 404 for
+logged-out visitors.

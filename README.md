@@ -22,8 +22,10 @@ not revocation.**
 
 <video src="https://github.com/user-attachments/assets/e7106f3a-b843-4940-9343-51c75c1e810e" controls autoplay loop muted playsinline></video>
 
-The recording uses a throwaway unencrypted key and never authorizes it. See
-[`demo/README.md`](demo/README.md) to regenerate the demo with VHS.
+The recording uses a throwaway unencrypted key and never authorizes it. Use the
+player controls to pause or scrub. A [GIF fallback](demo/demo.gif) is also
+committed. See [`demo/README.md`](demo/README.md) to regenerate the demo with
+VHS.
 
 ## Install
 
