@@ -33,25 +33,19 @@ Enter
 Enter
 Sleep 8s
 
-Type "temp-ssh-key cleanup --dry-run"
-Enter
-Enter
-Sleep 8s
-
 Type "temp-ssh-key cleanup"
 Enter
-Sleep 500ms
+Sleep 700ms
 Type "y"
 Enter
-Sleep 300ms
+Sleep 400ms
 Type "y"
 Enter
-Enter
-Sleep 4s
+Sleep 3s
 
 Type "unset KEY_DIR KEY KEY_FINGERPRINT"
 Enter
-Sleep 300ms
+Sleep 500ms
 Type "exit"
 Enter
-Sleep 8s
+Sleep 6s
