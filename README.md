@@ -30,7 +30,7 @@ The recording uses a throwaway unencrypted key and never authorizes it. See
 With mise:
 
 ```sh
-mise use -g github:kwtucker/temp-ssh-key@0.3.0
+mise use -g github:kwtucker/temp-ssh-key@0.3.1
 ```
 
 With Go:
@@ -53,9 +53,9 @@ workflow. Verify the checksum before running a downloaded binary:
 
 ```sh
 # Linux example; adjust the file name for your OS and architecture.
-curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.3.0/temp-ssh-key_0.3.0_linux_amd64.tar.gz
-curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.3.0/checksums.txt
-grep "temp-ssh-key_0.3.0_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -
+curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.3.1/temp-ssh-key_0.3.1_linux_amd64.tar.gz
+curl -LO https://github.com/kwtucker/temp-ssh-key/releases/download/v0.3.1/checksums.txt
+grep "temp-ssh-key_0.3.1_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -
 ```
 
 On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`.
@@ -65,7 +65,7 @@ artifact attestations. Auditors with an authenticated GitHub CLI can check the
 build provenance:
 
 ```sh
-gh attestation verify temp-ssh-key_0.3.0_linux_amd64.tar.gz \
+gh attestation verify temp-ssh-key_0.3.1_linux_amd64.tar.gz \
   --repo kwtucker/temp-ssh-key
 ```
 
